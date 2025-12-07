@@ -1,0 +1,15 @@
+langchain
+crewai
+autogen
+pandas
+python-dotenv
+pymupdf
+pdfminer.six
+ollama
+litellm
+streamlit
+reportlab
+openpyxl
+scikit-learn
+plotly
+numpy
