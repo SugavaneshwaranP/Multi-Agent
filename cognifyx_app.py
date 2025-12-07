@@ -383,26 +383,36 @@ def create_category_distribution_chart(category_data):
     return fig
 
 def detect_dataset_type(file_path):
-    """Auto-detect if dataset is Sales, Resume, or Generic"""
+    """Auto-detect if dataset is Sales, Resume, E-commerce or Generic"""
     try:
         # Check if it's a directory (PDF resumes)
         if os.path.isdir(file_path):
             return 'resume'
         
-        # Read first few rows of CSV
-        df = pd.read_csv(file_path, nrows=100)
+        # Read first few rows (support CSV and Excel)
+        if file_path.endswith(('.xlsx', '.xls')):
+            df = pd.read_excel(file_path, nrows=100)
+        else:
+            df = pd.read_csv(file_path, nrows=100)
         columns = [col.lower() for col in df.columns]
         
         # Resume indicators
         resume_keywords = ['resume', 'skill', 'experience', 'education', 'degree', 'qualification', 'candidate', 'cv', 'job']
         resume_score = sum(1 for col in columns if any(kw in col for kw in resume_keywords))
         
+        # E-commerce indicators (more specific)
+        ecommerce_keywords = ['seller', 'brand', 'category', 'sub_category', 'actual_price', 'selling_price', 
+                            'out_of_stock', 'rating', 'title', 'description', 'crawled']
+        ecommerce_score = sum(1 for col in columns if any(kw in col for kw in ecommerce_keywords))
+        
         # Sales indicators
-        sales_keywords = ['sales', 'revenue', 'profit', 'customer', 'product', 'order', 'discount', 'quantity']
+        sales_keywords = ['sales', 'revenue', 'profit', 'customer', 'order', 'quantity', 'ship', 'region']
         sales_score = sum(1 for col in columns if any(kw in col for kw in sales_keywords))
         
-        if resume_score > sales_score and resume_score >= 2:
+        if resume_score > max(sales_score, ecommerce_score) and resume_score >= 2:
             return 'resume'
+        elif ecommerce_score >= 4:  # E-commerce has many specific columns
+            return 'ecommerce'
         elif sales_score >= 2:
             return 'sales'
         else:
@@ -468,12 +478,12 @@ def main():
         st.markdown("### 📊 Data Source")
         dataset = st.selectbox(
             "Select Dataset",
-            ["Sample - Superstore.csv", "Resume PDFs (500 samples)", "Resume Dataset (CSV)", "Upload Custom"],
+            ["E-Commerce Products (30K)", "Resume PDFs (500 samples)", "Resume Dataset (CSV)", "Upload Custom"],
             index=0
         )
         
         if dataset == "Upload Custom":
-            uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
+            uploaded_file = st.file_uploader("Upload CSV/Excel", type=['csv', 'xlsx', 'xls'])
             if uploaded_file:
                 os.makedirs("datasets/uploads", exist_ok=True)
                 file_path = f"datasets/uploads/{uploaded_file.name}"
@@ -484,6 +494,14 @@ def main():
                 dataset_type = detect_dataset_type(file_path)
                 st.info(f"📊 Detected: {dataset_type.upper()} dataset")
             else:
+                file_path = None
+        elif dataset == "E-Commerce Products (30K)":
+            file_path = "datasets/sales/output.xlsx"
+            if os.path.exists(file_path):
+                st.success("✅ E-commerce dataset ready (30,000 products)")
+                st.info("📊 Includes: prices, ratings, brands, categories, discounts, stock data")
+            else:
+                st.error("❌ E-commerce dataset not found")
                 file_path = None
         elif dataset == "Resume PDFs (500 samples)":
             file_path = "datasets/resumes/data/data"
@@ -501,9 +519,6 @@ def main():
             else:
                 st.error("❌ Resume dataset not found")
                 file_path = None
-        else:
-            file_path = "datasets/sales/Sample - Superstore.csv"
-            st.success("✅ Superstore dataset ready")
         
         st.markdown("---")
         
@@ -638,6 +653,93 @@ def main():
                 }
                 st.session_state.analyzer = analyzer
                 
+            elif dataset_type == 'ecommerce':
+                # E-COMMERCE SPECIFIC ANALYSIS PIPELINE
+                # Basic Metrics
+                status_text.text("📊 Extracting e-commerce metrics...")
+                log_agent_activity(worker_model, "Computing product metrics")
+                progress_bar.progress(40)
+                metrics = engine.get_basic_metrics()
+                if 'numeric_summary' in metrics and metrics['numeric_summary']:
+                    first_col = list(metrics['numeric_summary'].keys())[0]
+                    log_agent_activity(worker_model, f"{first_col} analysis complete")
+                time.sleep(0.5)
+                
+                # Price Intelligence
+                status_text.text(f"🤖 {worker_model.upper()} analyzing prices...")
+                log_agent_activity(worker_model, "Running price intelligence analysis")
+                progress_bar.progress(50)
+                price_intel = engine.ecommerce_price_intelligence()
+                if price_intel.get('available'):
+                    log_agent_activity(worker_model, f"Price analysis: ₹{price_intel['price_stats'].get('avg_price', 0):,.0f} avg")
+                else:
+                    log_agent_activity(worker_model, f"Price: {price_intel.get('message', 'N/A')}")
+                time.sleep(0.5)
+                
+                # Stock Prediction
+                status_text.text(f"🤖 {worker_model.upper()} predicting stock levels...")
+                log_agent_activity(worker_model, "Running stock prediction")
+                progress_bar.progress(60)
+                stock_pred = engine.ecommerce_stock_prediction()
+                if stock_pred.get('available'):
+                    log_agent_activity(worker_model, f"Stock analysis: {stock_pred['stock_stats'].get('out_of_stock', 0)} out of stock")
+                else:
+                    log_agent_activity(worker_model, f"Stock: {stock_pred.get('message', 'N/A')}")
+                time.sleep(0.5)
+                
+                # Seller Trust Analysis
+                status_text.text(f"🤖 {worker_model.upper()} analyzing seller trust...")
+                log_agent_activity(worker_model, "Computing seller trust scores")
+                progress_bar.progress(70)
+                seller_trust = engine.ecommerce_seller_trust()
+                if seller_trust.get('available'):
+                    log_agent_activity(worker_model, f"Trust analysis: {seller_trust.get('seller_stats', {}).get('total_sellers', 0)} sellers")
+                else:
+                    log_agent_activity(worker_model, f"Sellers: {seller_trust.get('message', 'N/A')}")
+                time.sleep(0.5)
+                
+                # Brand Analysis
+                status_text.text(f"🤖 {worker_model.upper()} analyzing brands...")
+                log_agent_activity(worker_model, "Running brand performance analysis")
+                progress_bar.progress(80)
+                brand_analysis = engine.ecommerce_brand_analysis()
+                if brand_analysis.get('available'):
+                    log_agent_activity(worker_model, f"Brand analysis: {brand_analysis['brand_stats'].get('total_brands', 0)} brands")
+                else:
+                    log_agent_activity(worker_model, f"Brands: {brand_analysis.get('message', 'N/A')}")
+                time.sleep(0.5)
+                
+                # Fraud Detection
+                status_text.text(f"🤖 {worker_model.upper()} detecting fraud patterns...")
+                log_agent_activity(worker_model, "Scanning for fraudulent listings")
+                progress_bar.progress(90)
+                fraud_detection = engine.ecommerce_fraud_detection()
+                if fraud_detection.get('available'):
+                    log_agent_activity(worker_model, f"Fraud scan: {fraud_detection.get('suspicious_count', 0)} suspicious items")
+                else:
+                    log_agent_activity(worker_model, "Fraud detection complete")
+                time.sleep(0.5)
+                
+                # Executive Summary
+                status_text.text(f"🤖 Multi-agent collaboration: Generating summary...")
+                log_agent_activity(planner_model, "Coordinating executive summary")
+                summary = engine.generate_executive_summary()
+                log_agent_activity(reviewer_model, "Validating analysis quality ✅")
+                progress_bar.progress(100)
+                time.sleep(0.5)
+                
+                # Store E-commerce specific results
+                st.session_state.results = {
+                    'metrics': metrics,
+                    'price_intel': price_intel,
+                    'stock_pred': stock_pred,
+                    'seller_trust': seller_trust,
+                    'brand_analysis': brand_analysis,
+                    'fraud_detection': fraud_detection,
+                    'summary': summary
+                }
+                st.session_state.engine = engine
+            
             else:
                 # SALES/GENERIC ANALYSIS PIPELINE  
                 # Basic Metrics
@@ -898,6 +1000,342 @@ def main():
             else:
                 st.warning("Summary not available")
             
+        elif dataset_type == 'ecommerce':
+            # E-COMMERCE ANALYTICS DASHBOARD
+            st.markdown("## 🛒 E-Commerce Intelligence Dashboard")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            price_intel = results.get('price_intel', {})
+            stock_pred = results.get('stock_pred', {})
+            seller_trust = results.get('seller_trust', {})
+            brand_analysis = results.get('brand_analysis', {})
+            fraud_detection = results.get('fraud_detection', {})
+            metrics = results.get('metrics', {})
+            
+            with col1:
+                if price_intel.get('available') and price_intel.get('price_stats'):
+                    display_metric_card(
+                        "Avg Price",
+                        f"₹{price_intel['price_stats'].get('avg_price', 0):,.0f}",
+                        f"Range: ₹{price_intel['price_stats'].get('min_price', 0):,.0f} - ₹{price_intel['price_stats'].get('max_price', 0):,.0f}"
+                    )
+                else:
+                    display_metric_card("Price Data", "N/A", "")
+            
+            with col2:
+                if stock_pred.get('available') and stock_pred.get('stock_stats'):
+                    display_metric_card(
+                        "Stock Status",
+                        f"{stock_pred['stock_stats'].get('in_stock', 0):,} In Stock",
+                        f"❌ {stock_pred['stock_stats'].get('out_of_stock', 0):,} Out of Stock"
+                    )
+                else:
+                    display_metric_card("Stock Data", "N/A", "")
+            
+            with col3:
+                if seller_trust.get('available') and seller_trust.get('rating_stats'):
+                    display_metric_card(
+                        "Avg Rating",
+                        f"⭐ {seller_trust['rating_stats'].get('avg_rating', 0):.2f}/5.0",
+                        f"{seller_trust['rating_stats'].get('high_rated', 0):,} highly rated"
+                    )
+                else:
+                    display_metric_card("Rating Data", "N/A", "")
+            
+            with col4:
+                if fraud_detection.get('available'):
+                    risk_color = '🔴' if fraud_detection.get('risk_level') == 'HIGH' else '🟡' if fraud_detection.get('risk_level') == 'MEDIUM' else '🟢'
+                    display_metric_card(
+                        "Risk Level",
+                        f"{risk_color} {fraud_detection.get('risk_level', 'LOW')}",
+                        f"{fraud_detection.get('suspicious_count', 0):,} suspicious items"
+                    )
+                else:
+                    display_metric_card("Risk Status", "N/A", "")
+            
+            st.markdown("---")
+            
+            # E-commerce Tabs
+            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+                "💲 Price Intelligence",
+                "📦 Stock Prediction",
+                "⭐ Seller Trust",
+                "🏷️ Brand Analysis",
+                "🚨 Fraud Detection",
+                "📋 AI Insights"
+            ])
+            
+            with tab1:
+                st.markdown("### 💲 Price Intelligence & Dynamic Pricing")
+                if price_intel.get('available'):
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        # Price tier distribution chart
+                        if price_intel.get('price_tiers'):
+                            import plotly.express as px
+                            tiers_df = pd.DataFrame({
+                                'Tier': list(price_intel['price_tiers'].keys()),
+                                'Products': list(price_intel['price_tiers'].values())
+                            })
+                            fig = px.pie(tiers_df, values='Products', names='Tier', 
+                                        title='Price Tier Distribution',
+                                        color_discrete_sequence=['#3b82f6', '#10b981', '#f59e0b'])
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Discount analysis chart
+                        if price_intel.get('discount_analysis'):
+                            disc = price_intel['discount_analysis']
+                            disc_df = pd.DataFrame({
+                                'Category': ['With Discount', 'No Discount', 'High (>50%)', 'Suspicious (>80%)'],
+                                'Count': [disc.get('products_with_discount', 0), disc.get('no_discount', 0),
+                                         disc.get('high_discount_count', 0), disc.get('suspicious_discounts', 0)]
+                            })
+                            fig2 = px.bar(disc_df, x='Category', y='Count', title='Discount Distribution',
+                                         color='Category', color_discrete_sequence=['#10b981', '#6b7280', '#f59e0b', '#ef4444'])
+                            st.plotly_chart(fig2, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("### 📊 Price Statistics")
+                        stats = price_intel.get('price_stats', {})
+                        st.metric("Average Price", f"₹{stats.get('avg_price', 0):,.2f}")
+                        st.metric("Median Price", f"₹{stats.get('median_price', 0):,.2f}")
+                        st.metric("Price Range", f"₹{stats.get('price_range', 0):,.2f}")
+                        st.metric("Std Deviation", f"₹{stats.get('std_dev', 0):,.2f}")
+                        
+                        if price_intel.get('price_anomalies'):
+                            st.warning(f"⚠️ {price_intel['price_anomalies'].get('count', 0)} price anomalies detected")
+                    
+                    st.markdown("### 💡 Price Intelligence Insights")
+                    st.info(price_intel.get('insights', 'No insights available'))
+                else:
+                    st.warning("⚠️ Price data not available")
+                    st.info("💡 Upload data with price columns for analysis")
+            
+            with tab2:
+                st.markdown("### 📦 Stock Prediction & Inventory Intelligence")
+                if stock_pred.get('available'):
+                    col1, col2 = st.columns([1, 1])
+                    
+                    with col1:
+                        # Stock status pie chart
+                        stats = stock_pred.get('stock_stats', {})
+                        stock_df = pd.DataFrame({
+                            'Status': ['In Stock', 'Out of Stock'],
+                            'Count': [stats.get('in_stock', 0), stats.get('out_of_stock', 0)]
+                        })
+                        fig = px.pie(stock_df, values='Count', names='Status',
+                                    title='Stock Status Distribution',
+                                    color_discrete_sequence=['#10b981', '#ef4444'])
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("### 📊 Stock Metrics")
+                        st.metric("Total Products", f"{stats.get('total_products', 0):,}")
+                        st.metric("In Stock", f"{stats.get('in_stock', 0):,}", f"{stats.get('stock_rate', 0):.1f}%")
+                        st.metric("Out of Stock", f"{stats.get('out_of_stock', 0):,}", f"{100 - stats.get('stock_rate', 0):.1f}%")
+                        
+                        # Urgent restock alert
+                        if stock_pred.get('restock_urgency'):
+                            st.markdown("### 🚨 Urgent Restock Categories")
+                            for cat in stock_pred['restock_urgency'][:5]:
+                                st.error(f"📦 {cat}")
+                    
+                    st.markdown("### 💡 Stock Prediction Insights")
+                    st.info(stock_pred.get('insights', 'No insights available'))
+                else:
+                    st.warning("⚠️ Stock data not available")
+                    st.info("💡 Upload data with out_of_stock column for prediction")
+            
+            with tab3:
+                st.markdown("### ⭐ Seller Trust Score & Rating Analysis")
+                if seller_trust.get('available'):
+                    col1, col2 = st.columns([1, 1])
+                    
+                    with col1:
+                        # Rating distribution chart
+                        if seller_trust.get('rating_distribution'):
+                            rating_df = pd.DataFrame({
+                                'Rating': list(seller_trust['rating_distribution'].keys()),
+                                'Count': list(seller_trust['rating_distribution'].values())
+                            })
+                            fig = px.bar(rating_df, x='Rating', y='Count', title='Rating Distribution',
+                                        color='Count', color_continuous_scale='Greens')
+                            st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("### 📊 Rating Statistics")
+                        rating_stats = seller_trust.get('rating_stats', {})
+                        st.metric("Average Rating", f"⭐ {rating_stats.get('avg_rating', 0):.2f}/5.0")
+                        st.metric("Highly Rated (≥4.0)", f"{rating_stats.get('high_rated', 0):,}")
+                        st.metric("Low Rated (<3.0)", f"{rating_stats.get('low_rated', 0):,}")
+                        st.metric("Unrated Products", f"{rating_stats.get('unrated', 0):,}")
+                        
+                        seller_stats = seller_trust.get('seller_stats', {})
+                        if seller_stats:
+                            st.markdown("### 🏪 Seller Stats")
+                            st.metric("Total Sellers", f"{seller_stats.get('total_sellers', 0):,}")
+                            st.metric("Top Seller", seller_stats.get('top_seller', 'N/A')[:30])
+                    
+                    # Flagged sellers
+                    if seller_trust.get('flagged_sellers'):
+                        st.markdown("### 🚨 Flagged Sellers (Low Rating + High Volume)")
+                        for seller in seller_trust['flagged_sellers'][:5]:
+                            st.error(f"⚠️ {seller}")
+                    
+                    # Trusted sellers
+                    if seller_trust.get('trusted_sellers'):
+                        st.markdown("### ✅ Trusted Sellers (High Rating)")
+                        for seller in seller_trust['trusted_sellers'][:5]:
+                            st.success(f"⭐ {seller}")
+                    
+                    st.markdown("### 💡 Seller Trust Insights")
+                    st.info(seller_trust.get('insights', 'No insights available'))
+                else:
+                    st.warning("⚠️ Seller/rating data not available")
+                    st.info("💡 Upload data with seller and rating columns")
+            
+            with tab4:
+                st.markdown("### 🏷️ Brand & Category Intelligence")
+                if brand_analysis.get('available'):
+                    col1, col2 = st.columns([1, 1])
+                    
+                    with col1:
+                        # Top brands chart
+                        if brand_analysis.get('top_brands'):
+                            brands_df = pd.DataFrame(brand_analysis['top_brands'], columns=['Brand', 'Products'])
+                            fig = px.bar(brands_df, x='Brand', y='Products', title='Top 10 Brands',
+                                        color='Products', color_continuous_scale='Blues')
+                            fig.update_xaxes(tickangle=45)
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Category distribution
+                        if brand_analysis.get('category_distribution'):
+                            cat_df = pd.DataFrame({
+                                'Category': list(brand_analysis['category_distribution'].keys()),
+                                'Products': list(brand_analysis['category_distribution'].values())
+                            })
+                            fig2 = px.pie(cat_df, values='Products', names='Category',
+                                         title='Category Distribution')
+                            st.plotly_chart(fig2, use_container_width=True)
+                    
+                    with col2:
+                        st.markdown("### 📊 Brand Statistics")
+                        brand_stats = brand_analysis.get('brand_stats', {})
+                        st.metric("Total Brands", f"{brand_stats.get('total_brands', 0):,}")
+                        st.metric("Leading Brand", brand_stats.get('top_brand', 'N/A')[:25])
+                        st.metric("Top Brand Products", f"{brand_stats.get('top_brand_products', 0):,}")
+                        
+                        cat_stats = brand_analysis.get('category_stats', {})
+                        if cat_stats:
+                            st.markdown("### 📂 Category Stats")
+                            st.metric("Total Categories", f"{cat_stats.get('total_categories', 0):,}")
+                            st.metric("Top Category", cat_stats.get('top_category', 'N/A')[:25])
+                        
+                        # Best rated brands
+                        if brand_analysis.get('best_rated_brands'):
+                            st.markdown("### 🏆 Best Rated Brands")
+                            for brand in brand_analysis['best_rated_brands'][:5]:
+                                st.success(f"⭐ {brand}")
+                    
+                    st.markdown("### 💡 Brand Intelligence Insights")
+                    st.info(brand_analysis.get('insights', 'No insights available'))
+                else:
+                    st.warning("⚠️ Brand data not available")
+                    st.info("💡 Upload data with brand/category columns")
+            
+            with tab5:
+                st.markdown("### 🚨 Fraud Detection & Anomaly Alerts")
+                if fraud_detection.get('available'):
+                    # Risk level banner
+                    risk_level = fraud_detection.get('risk_level', 'LOW')
+                    if risk_level == 'HIGH':
+                        st.error(f"⚠️ HIGH RISK LEVEL - {fraud_detection.get('suspicious_count', 0):,} suspicious items detected!")
+                    elif risk_level == 'MEDIUM':
+                        st.warning(f"⚡ MEDIUM RISK LEVEL - {fraud_detection.get('suspicious_count', 0):,} items need review")
+                    else:
+                        st.success(f"✅ LOW RISK LEVEL - Marketplace appears healthy")
+                    
+                    # Fraud signals breakdown
+                    if fraud_detection.get('fraud_signals'):
+                        st.markdown("### 🔍 Fraud Signals Detected")
+                        for signal in fraud_detection['fraud_signals']:
+                            severity = signal.get('severity', 'LOW')
+                            color = '#ef4444' if severity == 'HIGH' else '#f59e0b' if severity == 'MEDIUM' else '#3b82f6'
+                            st.markdown(f"""
+                                <div style='background: #1f2937; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid {color};'>
+                                    <h4 style='margin: 0; color: {color};'>[{severity}] {signal.get('type', 'Unknown')}</h4>
+                                    <p style='margin: 10px 0;'><strong>Count:</strong> {signal.get('count', 0):,} items</p>
+                                    <p style='margin: 5px 0;'>{signal.get('description', '')}</p>
+                                </div>
+                            """, unsafe_allow_html=True)
+                        
+                        # Summary chart
+                        signals_df = pd.DataFrame(fraud_detection['fraud_signals'])
+                        if not signals_df.empty:
+                            fig = px.bar(signals_df, x='type', y='count', color='severity',
+                                        title='Fraud Signal Distribution',
+                                        color_discrete_map={'HIGH': '#ef4444', 'MEDIUM': '#f59e0b', 'LOW': '#3b82f6'})
+                            st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.success("✅ No significant fraud signals detected!")
+                    
+                    st.markdown("### 💡 Fraud Detection Insights")
+                    st.info(fraud_detection.get('insights', 'No insights available'))
+                else:
+                    st.warning("⚠️ Fraud detection not available")
+                    st.info("💡 Upload data with price, discount, rating columns")
+            
+            with tab6:
+                st.markdown("### 📋 AI-Powered Executive Summary")
+                summary = results.get('summary', {})
+                
+                if summary.get('available'):
+                    # Recommendations
+                    if summary.get('recommendations'):
+                        st.markdown("### ⚡ Strategic Recommendations")
+                        for rec in summary['recommendations']:
+                            priority_color = '#ef4444' if rec['priority'] == 'HIGH' else '#f59e0b' if rec['priority'] == 'MEDIUM' else '#3b82f6'
+                            st.markdown(f"""
+                                <div style='background: #1f2937; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid {priority_color};'>
+                                    <h4 style='margin: 0; color: {priority_color};'>[{rec['priority']}] {rec['category']}</h4>
+                                    <p style='margin: 10px 0;'><strong>💡 Insight:</strong> {rec['insight']}</p>
+                                    <p style='margin: 5px 0;'><strong>✅ Action:</strong> {rec['action']}</p>
+                                </div>
+                            """, unsafe_allow_html=True)
+                    
+                    # Use cases
+                    if summary.get('use_cases'):
+                        st.markdown("### 🎯 Business Use Cases")
+                        cols = st.columns(3)
+                        for idx, use_case in enumerate(summary['use_cases']):
+                            with cols[idx % 3]:
+                                st.info(f"✓ {use_case}")
+                    
+                    st.markdown("### 📊 Full Analysis Report")
+                    st.markdown(summary.get('executive_summary', 'Summary not available'))
+                else:
+                    st.warning("Summary generation not available")
+                    
+                # Show all analysis insights together
+                st.markdown("### 🔍 Combined Analysis Insights")
+                all_insights = []
+                if price_intel.get('insights'):
+                    all_insights.append(("Price Intelligence", price_intel['insights']))
+                if stock_pred.get('insights'):
+                    all_insights.append(("Stock Prediction", stock_pred['insights']))
+                if seller_trust.get('insights'):
+                    all_insights.append(("Seller Trust", seller_trust['insights']))
+                if brand_analysis.get('insights'):
+                    all_insights.append(("Brand Analysis", brand_analysis['insights']))
+                if fraud_detection.get('insights'):
+                    all_insights.append(("Fraud Detection", fraud_detection['insights']))
+                
+                for title, insight in all_insights:
+                    with st.expander(f"📊 {title}"):
+                        st.markdown(f"```\n{insight}\n```")
+        
         else:
             # SALES/GENERIC ANALYTICS DASHBOARD
             st.markdown("## 📊 Business Intelligence Dashboard")
@@ -956,157 +1394,177 @@ def main():
             
             st.markdown("---")
             
-            # Tabs for different views
-            tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                "📈 Forecasting", 
-                "👥 Customers", 
-                "📦 Products", 
-                "⚠️ Anomalies", 
-                "📋 Executive Summary"
+            # Tabs for different views - Sales/Generic focused
+            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+                "📈 Forecast & Trends", 
+                "👥 Segmentation", 
+                "🎯 Products/Categories", 
+                "🚨 Anomalies",
+                "📊 Metrics", 
+                "📋 AI Summary"
             ])
             
             with tab1:
-                st.markdown("### 🔮 Forecasting Analysis (LLM-Powered)")
+                st.markdown("### 📈 Trend Analysis & Forecasting")
                 
                 if results.get('forecast', {}).get('available'):
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
-                        # Forecast chart
                         forecast_data = results['forecast']['forecasted_sales']
                         fig = create_sales_trend_chart(forecast_data)
+                        fig.update_layout(title='Trend Forecast')
                         st.plotly_chart(fig, use_container_width=True)
                     
                     with col2:
                         st.markdown(f"""
                             <div class="insight-box">
-                                <h4>📊 Forecast Insights</h4>
-                                <p><strong>Column:</strong> {results['forecast']['column']}</p>
+                                <h4>📊 Forecast Analysis</h4>
+                                <p><strong>Metric:</strong> {results['forecast']['column']}</p>
                                 <p><strong>Trend:</strong> {results['forecast']['trend'].upper()}</p>
-                                <p><strong>Growth Rate:</strong> {results['forecast']['monthly_growth_rate']:,.2f}</p>
+                                <p><strong>Growth Rate:</strong> {results['forecast']['monthly_growth_rate']:+,.2f}%</p>
                                 <p><strong>Confidence:</strong> {results['forecast']['confidence']}</p>
-                                <p><strong>Next Period:</strong> {results['forecast']['forecasted_sales'][0]:,.2f}</p>
                             </div>
                         """, unsafe_allow_html=True)
                         
-                        st.markdown("### 🤖 AI Reasoning")
-                        st.info(results['forecast']['reasoning'])
+                        st.markdown("### 🎯 Recommendations")
+                        trend = results['forecast'].get('trend', 'stable')
+                        if trend == 'increasing':
+                            st.success("📈 **Growing Trend**: Continue current strategies")
+                        elif trend == 'decreasing':
+                            st.warning("📉 **Declining Trend**: Review and adjust approach")
+                        else:
+                            st.info("📊 **Stable Trend**: Maintain performance")
                 else:
-                    st.warning(f"⚠️ {results.get('forecast', {}).get('message', 'Not available')}")
-                    st.info(f"💡 {results.get('forecast', {}).get('suggestion', 'Upload a dataset with date and numeric columns')}")
+                    st.warning("⚠️ Forecast data not available")
+                    st.info("💡 Upload data with date/time columns for forecasting")
             
             with tab2:
-                st.markdown("### 👥 Entity Segmentation (LLM-Powered)")
+                st.markdown("### 👥 Entity Segmentation Analysis")
                 
                 if results.get('segments', {}).get('available'):
                     col1, col2 = st.columns([1, 1])
                     
                     with col1:
                         fig = create_customer_segment_chart(results['segments']['segments'])
+                        fig.update_layout(title='Segment Distribution')
                         st.plotly_chart(fig, use_container_width=True)
                     
                     with col2:
                         st.markdown("### 📊 Segment Details")
-                        st.info(f"**Entity Column:** {results['segments']['entity_column']}")
-                        st.info(f"**Value Column:** {results['segments']['value_column']}")
-                        
                         for seg_id, seg_data in results['segments']['segments'].items():
+                            label = seg_data.get('Label', seg_id)
                             st.markdown(f"""
                                 <div class="insight-box">
-                                    <h4>{seg_data['Label']}</h4>
-                                    <p><strong>Count:</strong> {seg_data['Customer ID']}</p>
-                                    <p><strong>Avg Value:</strong> {seg_data['Sales']:,.2f}</p>
-                                    <p><strong>Insight:</strong> {seg_data['insight']}</p>
+                                    <h4>{label}</h4>
+                                    <p><strong>Details:</strong> Segment {seg_id}</p>
                                 </div>
                             """, unsafe_allow_html=True)
+                    
+                    st.markdown("### 💡 Segmentation Insights")
+                    st.info(results['segments'].get('insights', 'No insights available'))
                 else:
-                    st.warning(f"⚠️ {results.get('segments', {}).get('message', 'Not available')}")
-                    st.info(f"💡 {results.get('segments', {}).get('suggestion', 'Upload a dataset with entity and value columns')}")
+                    st.warning("⚠️ Segmentation not available")
+                    st.info("💡 Upload data with entity columns for segmentation")
             
             with tab3:
-                st.markdown("### 📦 Categorical Analysis")
+                st.markdown("### 🎯 Category/Product Intelligence")
                 
                 if results.get('products', {}).get('available'):
                     category_data = results['products']['category_performance']
                     
                     if category_data:
                         fig = create_category_performance_chart(category_data)
+                        fig.update_layout(title='Category Performance')
                         st.plotly_chart(fig, use_container_width=True)
                         
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.info(f"**Grouping Column:** {results['products'].get('grouping_column', 'N/A')}")
+                            st.info(f"**Grouping:** {results['products'].get('grouping_column', 'N/A')}")
                         with col2:
-                            st.info(f"**Value Column:** {results['products'].get('value_column', 'N/A')}")
-                    else:
-                        st.info("No categorical data to display")
+                            st.info(f"**Metric:** {results['products'].get('value_column', 'N/A')}")
                     
-                    st.markdown("### 💡 Analysis Insights")
+                    st.markdown("### 📈 Category Insights")
                     st.markdown(f"""
                         <div class="insight-box">
-                            {results['products']['insights'].replace('\n', '<br>')}
+                            {results['products']['insights'].replace(chr(10), '<br>')}
                         </div>
                     """, unsafe_allow_html=True)
                 else:
-                    st.warning(f"⚠️ {results.get('products', {}).get('message', 'Not available')}")
-                    st.info(f"💡 {results.get('products', {}).get('suggestion', 'Upload a dataset with categorical columns')}")
+                    st.warning("⚠️ Category data not available")
+                    st.info("💡 Upload data with categorical columns")
             
             with tab4:
-                st.markdown("### ⚠️ Anomaly Detection (LLM-Powered)")
+                st.markdown("### 🚨 Anomaly Detection")
                 
                 if results.get('anomalies', {}).get('available'):
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2 = st.columns(2)
                     
                     with col1:
                         st.markdown(f"""
                             <div class="warning-box">
-                                <h4>🚨 Outliers</h4>
+                                <h4>🚨 Anomalies Detected</h4>
                                 <h2>{results['anomalies'].get('sales_outliers_count', 0)}</h2>
-                                <p>{results['anomalies'].get('outlier_percentage', 0):.2f}% of total</p>
+                                <p>{results['anomalies'].get('outlier_percentage', 0):.2f}% of data</p>
                             </div>
                         """, unsafe_allow_html=True)
                     
                     with col2:
-                        total_findings = sum(f.get('count', 0) for f in results['anomalies'].get('findings', []))
                         st.markdown(f"""
-                            <div class="warning-box">
-                                <h4>🔍 Total Findings</h4>
-                                <h2>{total_findings}</h2>
-                                <p>{len(results['anomalies'].get('findings', []))} types detected</p>
+                            <div class="insight-box">
+                                <h4>📊 Detection Summary</h4>
+                                <p>Outliers found in numeric columns</p>
+                                <p>Risk Level: {results['anomalies'].get('risk_level', 'UNKNOWN')}</p>
                             </div>
                         """, unsafe_allow_html=True)
                     
-                    with col3:
-                        st.markdown(f"""
-                            <div class="warning-box">
-                                <h4>⚡ Risk Level</h4>
-                                <h2>{results['anomalies'].get('risk_level', 'UNKNOWN')}</h2>
-                                <p>Overall assessment</p>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    
-                    # Show detailed findings
                     if results['anomalies'].get('findings'):
-                        st.markdown("### 📋 Detailed Findings")
-                        for finding in results['anomalies']['findings'][:10]:  # Show top 10
-                            severity_color = '#ef4444' if finding.get('severity') == 'CRITICAL' else '#f59e0b' if finding.get('severity') == 'HIGH' else '#3b82f6'
+                        st.markdown("### 📋 Anomaly Details")
+                        for finding in results['anomalies']['findings'][:10]:
+                            severity_color = '#ef4444' if finding.get('severity') == 'CRITICAL' else '#f59e0b'
                             st.markdown(f"""
                                 <div style='background: #1f2937; padding: 10px; border-radius: 5px; margin: 5px 0; border-left: 3px solid {severity_color};'>
-                                    <strong>{finding.get('column', 'N/A')}</strong> - {finding.get('type', 'unknown')}
-                                    <br>Count: {finding.get('count', 0)} | Severity: {finding.get('severity', 'MEDIUM')}
+                                    <strong>{finding.get('column', 'N/A')}</strong> - {finding.get('count', 0)} outliers
                                 </div>
                             """, unsafe_allow_html=True)
                     
-                    st.markdown("### 🔍 Anomaly Analysis")
                     if results['anomalies'].get('reasoning'):
+                        st.markdown("### 🤖 AI Analysis")
                         st.warning(results['anomalies']['reasoning'])
                 else:
-                    st.info("No anomaly detection results available")
-                    if results.get('anomalies', {}).get('message'):
-                        st.warning(results['anomalies']['message'])
+                    st.info("🔍 Anomaly detection not available")
             
             with tab5:
-                st.markdown("### 📋 Executive Summary")
+                st.markdown("### 📊 Dataset Metrics Overview")
+                
+                metrics = results.get('metrics', {})
+                
+                if metrics.get('numeric_summary'):
+                    st.markdown("### 📈 Numeric Column Statistics")
+                    for col_name, stats in metrics['numeric_summary'].items():
+                        with st.expander(f"📊 {col_name}"):
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Sum", f"{stats.get('sum', 0):,.2f}")
+                                st.metric("Mean", f"{stats.get('mean', 0):,.2f}")
+                            with col2:
+                                st.metric("Min", f"{stats.get('min', 0):,.2f}")
+                                st.metric("Max", f"{stats.get('max', 0):,.2f}")
+                            with col3:
+                                st.metric("Median", f"{stats.get('median', 0):,.2f}")
+                                st.metric("Std Dev", f"{stats.get('std', 0):,.2f}")
+                
+                if metrics.get('categorical_summary'):
+                    st.markdown("### 📂 Categorical Columns")
+                    for col_name, stats in metrics['categorical_summary'].items():
+                        st.info(f"**{col_name}**: {stats.get('unique_values', 0)} unique values, Top: {stats.get('top_value', 'N/A')}")
+                
+                if metrics.get('data_quality'):
+                    st.markdown("### ✅ Data Quality")
+                    st.success(f"Data completeness: {100 - float(metrics['data_quality']['missing_percentage'].rstrip('%')):.1f}%")
+            
+            with tab6:
+                st.markdown("### 📋 AI-Powered Executive Summary")
                 
                 st.markdown(f"""
                     <div style='background: #1f2937; padding: 20px; border-radius: 10px; border-left: 4px solid #3b82f6;'>
@@ -1115,6 +1573,20 @@ def main():
                         </pre>
                     </div>
                 """, unsafe_allow_html=True)
+                
+                # Show recommendations if available
+                summary = results.get('summary', {})
+                if summary.get('recommendations'):
+                    st.markdown("### ⚡ Strategic Recommendations")
+                    for rec in summary['recommendations']:
+                        priority_color = '#ef4444' if rec['priority'] == 'HIGH' else '#f59e0b' if rec['priority'] == 'MEDIUM' else '#3b82f6'
+                        st.markdown(f"""
+                            <div style='background: #1f2937; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid {priority_color};'>
+                                <h4 style='margin: 0; color: {priority_color};'>[{rec['priority']}] {rec['category']}</h4>
+                                <p style='margin: 10px 0;'><strong>💡 Insight:</strong> {rec['insight']}</p>
+                                <p style='margin: 5px 0;'><strong>✅ Action:</strong> {rec['action']}</p>
+                            </div>
+                        """, unsafe_allow_html=True)
                 
                 # Download options
                 st.markdown("---")

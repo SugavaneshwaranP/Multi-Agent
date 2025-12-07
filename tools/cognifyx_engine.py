@@ -41,15 +41,23 @@ class CognifyXEngine:
         self.reviewer = ReviewerAgent(model=reviewer_model)
         
     def load_and_preprocess(self):
-        """Load and auto-detect dataset structure (works with ANY CSV)"""
-        # Try multiple encodings
-        encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
-        for encoding in encodings:
+        """Load and auto-detect dataset structure (works with ANY CSV/Excel)"""
+        # Check file extension
+        if self.file_path.endswith(('.xlsx', '.xls')):
+            # Excel file
             try:
-                self.data = pd.read_csv(self.file_path, encoding=encoding)
-                break
-            except:
-                continue
+                self.data = pd.read_excel(self.file_path)
+            except Exception as e:
+                raise Exception(f"Failed to load Excel file: {str(e)}")
+        else:
+            # CSV file - try multiple encodings
+            encodings = ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']
+            for encoding in encodings:
+                try:
+                    self.data = pd.read_csv(self.file_path, encoding=encoding)
+                    break
+                except:
+                    continue
         
         if self.data is None:
             raise ValueError("Unable to read file")
@@ -471,6 +479,464 @@ class CognifyXEngine:
                 'risk_level': 'UNKNOWN'
             }
     
+    def ecommerce_price_intelligence(self):
+        """E-commerce price analysis - monitors price changes, discounts, and pricing strategies"""
+        result = {
+            'available': False,
+            'price_stats': {},
+            'discount_analysis': {},
+            'price_anomalies': [],
+            'insights': ''
+        }
+        
+        try:
+            # Find price columns
+            price_cols = [col for col in self.data.columns if any(word in col.lower() for word in ['price', 'selling', 'actual', 'mrp', 'cost'])]
+            discount_cols = [col for col in self.data.columns if 'discount' in col.lower()]
+            
+            if not price_cols:
+                return {'available': False, 'message': 'No price columns found', 'insights': 'Upload data with price information'}
+            
+            # Convert price columns to numeric
+            for col in price_cols:
+                if self.data[col].dtype == 'object':
+                    self.data[col] = pd.to_numeric(self.data[col].astype(str).str.replace('[₹,$,€,£,]', '', regex=True).str.replace(',', ''), errors='coerce')
+            
+            # Price statistics
+            price_col = price_cols[0]
+            valid_prices = self.data[price_col].dropna()
+            
+            if len(valid_prices) > 0:
+                result['price_stats'] = {
+                    'column': price_col,
+                    'avg_price': float(valid_prices.mean()),
+                    'min_price': float(valid_prices.min()),
+                    'max_price': float(valid_prices.max()),
+                    'median_price': float(valid_prices.median()),
+                    'price_range': float(valid_prices.max() - valid_prices.min()),
+                    'std_dev': float(valid_prices.std())
+                }
+                
+                # Price tiers
+                result['price_tiers'] = {
+                    'Budget (< 25th percentile)': int((valid_prices < valid_prices.quantile(0.25)).sum()),
+                    'Mid-range (25-75th)': int(((valid_prices >= valid_prices.quantile(0.25)) & (valid_prices <= valid_prices.quantile(0.75))).sum()),
+                    'Premium (> 75th percentile)': int((valid_prices > valid_prices.quantile(0.75)).sum())
+                }
+            
+            # Discount analysis
+            if discount_cols:
+                disc_col = discount_cols[0]
+                if self.data[disc_col].dtype == 'object':
+                    self.data[disc_col] = pd.to_numeric(self.data[disc_col].astype(str).str.replace('%', '').str.replace('off', '', case=False), errors='coerce')
+                
+                valid_discounts = self.data[disc_col].dropna()
+                if len(valid_discounts) > 0:
+                    result['discount_analysis'] = {
+                        'avg_discount': float(valid_discounts.mean()),
+                        'max_discount': float(valid_discounts.max()),
+                        'products_with_discount': int((valid_discounts > 0).sum()),
+                        'no_discount': int((valid_discounts == 0).sum()),
+                        'high_discount_count': int((valid_discounts > 50).sum()),
+                        'suspicious_discounts': int((valid_discounts > 80).sum())
+                    }
+            
+            # Price anomalies (unusually high or low)
+            if len(valid_prices) > 0:
+                Q1, Q3 = valid_prices.quantile(0.25), valid_prices.quantile(0.75)
+                IQR = Q3 - Q1
+                anomaly_mask = (valid_prices < Q1 - 1.5 * IQR) | (valid_prices > Q3 + 1.5 * IQR)
+                result['price_anomalies'] = {
+                    'count': int(anomaly_mask.sum()),
+                    'percentage': float(anomaly_mask.sum() / len(valid_prices) * 100)
+                }
+            
+            result['available'] = True
+            result['insights'] = f"""
+💲 PRICE INTELLIGENCE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Price Range: ₹{result['price_stats'].get('min_price', 0):,.0f} - ₹{result['price_stats'].get('max_price', 0):,.0f}
+📈 Average Price: ₹{result['price_stats'].get('avg_price', 0):,.2f}
+📉 Median Price: ₹{result['price_stats'].get('median_price', 0):,.2f}
+
+🏷️ DISCOUNT INSIGHTS:
+• Average Discount: {result.get('discount_analysis', {}).get('avg_discount', 0):.1f}%
+• Products with Discounts: {result.get('discount_analysis', {}).get('products_with_discount', 0):,}
+• High Discounts (>50%): {result.get('discount_analysis', {}).get('high_discount_count', 0):,}
+• ⚠️ Suspicious (>80%): {result.get('discount_analysis', {}).get('suspicious_discounts', 0):,}
+
+🚨 PRICE ANOMALIES: {result.get('price_anomalies', {}).get('count', 0)} items flagged ({result.get('price_anomalies', {}).get('percentage', 0):.2f}%)
+
+💡 RECOMMENDATIONS:
+1. Review {result.get('discount_analysis', {}).get('suspicious_discounts', 0)} items with >80% discount for fake listings
+2. Monitor {result.get('price_anomalies', {}).get('count', 0)} price anomalies for pricing errors
+3. Consider dynamic pricing for {result.get('price_tiers', {}).get('Mid-range (25-75th)', 0)} mid-range products
+"""
+            return result
+            
+        except Exception as e:
+            return {'available': False, 'message': f'Price analysis failed: {str(e)}', 'insights': str(e)}
+    
+    def ecommerce_stock_prediction(self):
+        """Predict out-of-stock items and suggest restock timing"""
+        result = {
+            'available': False,
+            'stock_stats': {},
+            'out_of_stock': {},
+            'restock_urgency': [],
+            'insights': ''
+        }
+        
+        try:
+            # Find stock columns
+            stock_cols = [col for col in self.data.columns if any(word in col.lower() for word in ['stock', 'inventory', 'quantity', 'available'])]
+            out_of_stock_cols = [col for col in self.data.columns if 'out_of_stock' in col.lower()]
+            
+            if out_of_stock_cols:
+                stock_col = out_of_stock_cols[0]
+                out_of_stock_count = self.data[stock_col].sum() if self.data[stock_col].dtype == bool else (self.data[stock_col] == True).sum()
+                in_stock_count = len(self.data) - out_of_stock_count
+                
+                result['stock_stats'] = {
+                    'total_products': len(self.data),
+                    'in_stock': int(in_stock_count),
+                    'out_of_stock': int(out_of_stock_count),
+                    'stock_rate': float(in_stock_count / len(self.data) * 100) if len(self.data) > 0 else 0
+                }
+                
+                # Category-wise stock analysis
+                cat_cols = [col for col in self.data.columns if any(word in col.lower() for word in ['category', 'brand', 'sub_category'])]
+                if cat_cols:
+                    cat_col = cat_cols[0]
+                    stock_by_cat = self.data.groupby(cat_col)[stock_col].agg(['sum', 'count'])
+                    stock_by_cat['out_of_stock_rate'] = (stock_by_cat['sum'] / stock_by_cat['count'] * 100).round(2)
+                    worst_categories = stock_by_cat.nlargest(5, 'out_of_stock_rate')
+                    
+                    result['category_stock'] = worst_categories.to_dict('index')
+                    result['restock_urgency'] = list(worst_categories.index)
+                
+                result['available'] = True
+                result['insights'] = f"""
+📦 STOCK PREDICTION ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 Total Products: {result['stock_stats']['total_products']:,}
+✅ In Stock: {result['stock_stats']['in_stock']:,} ({result['stock_stats']['stock_rate']:.1f}%)
+❌ Out of Stock: {result['stock_stats']['out_of_stock']:,} ({100 - result['stock_stats']['stock_rate']:.1f}%)
+
+🚨 URGENT RESTOCK NEEDED:
+Categories with highest out-of-stock rates:
+{chr(10).join([f"• {cat}" for cat in result.get('restock_urgency', [])[:5]])}
+
+💡 AI RECOMMENDATIONS:
+1. Prioritize restocking {result['stock_stats']['out_of_stock']:,} out-of-stock items
+2. Focus on categories with >50% stockout rate
+3. Set up low-stock alerts for fast-moving items
+4. Analyze demand patterns before bulk ordering
+"""
+            else:
+                result['available'] = False
+                result['message'] = 'No stock/inventory columns found'
+                result['insights'] = 'Upload data with stock information for prediction'
+            
+            return result
+            
+        except Exception as e:
+            return {'available': False, 'message': f'Stock prediction failed: {str(e)}', 'insights': str(e)}
+    
+    def ecommerce_seller_trust(self):
+        """Calculate seller trust scores based on ratings and badges"""
+        result = {
+            'available': False,
+            'seller_stats': {},
+            'trust_scores': {},
+            'flagged_sellers': [],
+            'insights': ''
+        }
+        
+        try:
+            seller_cols = [col for col in self.data.columns if any(word in col.lower() for word in ['seller', 'vendor', 'merchant', 'shop'])]
+            rating_cols = [col for col in self.data.columns if any(word in col.lower() for word in ['rating', 'review', 'score', 'star'])]
+            
+            if not seller_cols and not rating_cols:
+                return {'available': False, 'message': 'No seller or rating data found', 'insights': 'Upload data with seller ratings'}
+            
+            # Rating analysis
+            if rating_cols:
+                rating_col = rating_cols[0]
+                valid_ratings = self.data[rating_col].dropna()
+                
+                if len(valid_ratings) > 0:
+                    result['rating_stats'] = {
+                        'avg_rating': float(valid_ratings.mean()),
+                        'min_rating': float(valid_ratings.min()),
+                        'max_rating': float(valid_ratings.max()),
+                        'products_rated': int(len(valid_ratings)),
+                        'high_rated': int((valid_ratings >= 4.0).sum()),
+                        'low_rated': int((valid_ratings < 3.0).sum()),
+                        'unrated': int(self.data[rating_col].isna().sum())
+                    }
+                    
+                    # Rating distribution
+                    result['rating_distribution'] = {
+                        '5 Stars': int((valid_ratings >= 4.5).sum()),
+                        '4 Stars': int(((valid_ratings >= 3.5) & (valid_ratings < 4.5)).sum()),
+                        '3 Stars': int(((valid_ratings >= 2.5) & (valid_ratings < 3.5)).sum()),
+                        '2 Stars': int(((valid_ratings >= 1.5) & (valid_ratings < 2.5)).sum()),
+                        '1 Star': int((valid_ratings < 1.5).sum())
+                    }
+            
+            # Seller analysis
+            if seller_cols:
+                seller_col = seller_cols[0]
+                seller_counts = self.data[seller_col].value_counts()
+                
+                result['seller_stats'] = {
+                    'total_sellers': int(seller_counts.count()),
+                    'top_seller': str(seller_counts.index[0]) if len(seller_counts) > 0 else 'N/A',
+                    'top_seller_products': int(seller_counts.iloc[0]) if len(seller_counts) > 0 else 0,
+                    'avg_products_per_seller': float(seller_counts.mean())
+                }
+                
+                # Seller performance (if ratings available)
+                if rating_cols:
+                    seller_ratings = self.data.groupby(seller_col)[rating_cols[0]].agg(['mean', 'count']).round(2)
+                    seller_ratings.columns = ['avg_rating', 'product_count']
+                    
+                    # Flag low-rated sellers with many products
+                    flagged = seller_ratings[(seller_ratings['avg_rating'] < 3.0) & (seller_ratings['product_count'] > 10)]
+                    result['flagged_sellers'] = list(flagged.index[:10])
+                    
+                    # Top trusted sellers
+                    trusted = seller_ratings[(seller_ratings['avg_rating'] >= 4.0) & (seller_ratings['product_count'] > 5)]
+                    result['trusted_sellers'] = list(trusted.nlargest(10, 'avg_rating').index)
+            
+            result['available'] = True
+            result['insights'] = f"""
+⭐ SELLER TRUST ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 RATING OVERVIEW:
+• Average Rating: {result.get('rating_stats', {}).get('avg_rating', 0):.2f}/5.0
+• High Rated (≥4.0): {result.get('rating_stats', {}).get('high_rated', 0):,} products
+• Low Rated (<3.0): {result.get('rating_stats', {}).get('low_rated', 0):,} products
+• Unrated: {result.get('rating_stats', {}).get('unrated', 0):,} products
+
+🏪 SELLER INSIGHTS:
+• Total Sellers: {result.get('seller_stats', {}).get('total_sellers', 0):,}
+• Top Seller: {result.get('seller_stats', {}).get('top_seller', 'N/A')}
+• Average Products/Seller: {result.get('seller_stats', {}).get('avg_products_per_seller', 0):.1f}
+
+🚨 TRUST FLAGS:
+• Flagged Sellers (Low Rating + High Volume): {len(result.get('flagged_sellers', []))}
+• Trusted Sellers (High Rating): {len(result.get('trusted_sellers', []))}
+
+💡 RECOMMENDATIONS:
+1. Review {len(result.get('flagged_sellers', []))} flagged sellers for quality issues
+2. Feature products from {len(result.get('trusted_sellers', []))} trusted sellers
+3. Investigate {result.get('rating_stats', {}).get('unrated', 0):,} unrated products
+4. Monitor sellers with sudden rating drops
+"""
+            return result
+            
+        except Exception as e:
+            return {'available': False, 'message': f'Seller analysis failed: {str(e)}', 'insights': str(e)}
+    
+    def ecommerce_brand_analysis(self):
+        """Analyze brand performance, category trends, and recommendations"""
+        result = {
+            'available': False,
+            'brand_stats': {},
+            'category_stats': {},
+            'top_brands': [],
+            'trending': [],
+            'insights': ''
+        }
+        
+        try:
+            brand_cols = [col for col in self.data.columns if 'brand' in col.lower()]
+            category_cols = [col for col in self.data.columns if any(word in col.lower() for word in ['category', 'sub_category'])]
+            rating_cols = [col for col in self.data.columns if 'rating' in col.lower()]
+            price_cols = [col for col in self.data.columns if 'price' in col.lower()]
+            
+            # Brand analysis
+            if brand_cols:
+                brand_col = brand_cols[0]
+                brand_counts = self.data[brand_col].value_counts()
+                
+                result['brand_stats'] = {
+                    'total_brands': int(brand_counts.count()),
+                    'top_brand': str(brand_counts.index[0]) if len(brand_counts) > 0 else 'N/A',
+                    'top_brand_products': int(brand_counts.iloc[0]) if len(brand_counts) > 0 else 0
+                }
+                
+                result['top_brands'] = list(brand_counts.head(10).to_dict().items())
+                
+                # Brand performance (if ratings available)
+                if rating_cols:
+                    brand_ratings = self.data.groupby(brand_col)[rating_cols[0]].agg(['mean', 'count']).round(2)
+                    brand_ratings.columns = ['avg_rating', 'product_count']
+                    best_brands = brand_ratings[brand_ratings['product_count'] >= 5].nlargest(10, 'avg_rating')
+                    result['best_rated_brands'] = list(best_brands.index)
+            
+            # Category analysis
+            if category_cols:
+                cat_col = category_cols[0]
+                cat_counts = self.data[cat_col].value_counts()
+                
+                result['category_stats'] = {
+                    'total_categories': int(cat_counts.count()),
+                    'top_category': str(cat_counts.index[0]) if len(cat_counts) > 0 else 'N/A',
+                    'top_category_products': int(cat_counts.iloc[0]) if len(cat_counts) > 0 else 0
+                }
+                
+                result['category_distribution'] = dict(cat_counts.head(10))
+                
+                # Sub-category analysis
+                sub_cat_cols = [col for col in category_cols if 'sub' in col.lower()]
+                if sub_cat_cols:
+                    sub_cat_counts = self.data[sub_cat_cols[0]].value_counts()
+                    result['subcategory_distribution'] = dict(sub_cat_counts.head(15))
+            
+            result['available'] = True
+            result['insights'] = f"""
+🏷️ BRAND & CATEGORY INTELLIGENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🏢 BRAND OVERVIEW:
+• Total Brands: {result.get('brand_stats', {}).get('total_brands', 0):,}
+• Leading Brand: {result.get('brand_stats', {}).get('top_brand', 'N/A')}
+• Products from Top Brand: {result.get('brand_stats', {}).get('top_brand_products', 0):,}
+
+📂 CATEGORY OVERVIEW:
+• Total Categories: {result.get('category_stats', {}).get('total_categories', 0):,}
+• Top Category: {result.get('category_stats', {}).get('top_category', 'N/A')}
+• Products in Top Category: {result.get('category_stats', {}).get('top_category_products', 0):,}
+
+🏆 TOP PERFORMING BRANDS:
+{chr(10).join([f"• {brand}: {count} products" for brand, count in result.get('top_brands', [])[:5]])}
+
+💡 STRATEGIC RECOMMENDATIONS:
+1. Feature products from top {len(result.get('best_rated_brands', []))} best-rated brands
+2. Expand inventory in {result.get('category_stats', {}).get('top_category', 'top')} category
+3. Partner with emerging brands showing high ratings
+4. Monitor brand performance trends monthly
+"""
+            return result
+            
+        except Exception as e:
+            return {'available': False, 'message': f'Brand analysis failed: {str(e)}', 'insights': str(e)}
+    
+    def ecommerce_fraud_detection(self):
+        """Detect fake listings, misleading discounts, and suspicious patterns"""
+        result = {
+            'available': False,
+            'fraud_signals': [],
+            'suspicious_count': 0,
+            'risk_level': 'LOW',
+            'insights': ''
+        }
+        
+        try:
+            price_cols = [col for col in self.data.columns if 'price' in col.lower()]
+            discount_cols = [col for col in self.data.columns if 'discount' in col.lower()]
+            rating_cols = [col for col in self.data.columns if 'rating' in col.lower()]
+            
+            fraud_signals = []
+            
+            # 1. Misleading discounts (>80%)
+            if discount_cols:
+                disc_col = discount_cols[0]
+                if self.data[disc_col].dtype == 'object':
+                    disc_values = pd.to_numeric(self.data[disc_col].astype(str).str.replace('%', '').str.replace('off', '', case=False), errors='coerce')
+                else:
+                    disc_values = self.data[disc_col]
+                
+                fake_discounts = (disc_values > 80).sum()
+                if fake_discounts > 0:
+                    fraud_signals.append({
+                        'type': 'MISLEADING_DISCOUNT',
+                        'count': int(fake_discounts),
+                        'severity': 'HIGH',
+                        'description': f'{fake_discounts} products with >80% discount (potentially fake)'
+                    })
+            
+            # 2. Price anomalies (actual > selling with big gap)
+            if len(price_cols) >= 2:
+                for col in price_cols:
+                    if self.data[col].dtype == 'object':
+                        self.data[col] = pd.to_numeric(self.data[col].astype(str).str.replace('[₹,$,€,£,]', '', regex=True).str.replace(',', ''), errors='coerce')
+                
+                actual_col = [c for c in price_cols if 'actual' in c.lower()]
+                selling_col = [c for c in price_cols if 'selling' in c.lower()]
+                
+                if actual_col and selling_col:
+                    price_diff = self.data[actual_col[0]] - self.data[selling_col[0]]
+                    inflated = (price_diff > self.data[actual_col[0]] * 0.9).sum()  # >90% markup on actual price
+                    
+                    if inflated > 0:
+                        fraud_signals.append({
+                            'type': 'INFLATED_ACTUAL_PRICE',
+                            'count': int(inflated),
+                            'severity': 'MEDIUM',
+                            'description': f'{inflated} products with suspiciously inflated "actual" prices'
+                        })
+            
+            # 3. Suspicious ratings (all 5.0 or all 1.0)
+            if rating_cols:
+                rating_col = rating_cols[0]
+                perfect_ratings = (self.data[rating_col] == 5.0).sum()
+                zero_ratings = (self.data[rating_col] == 0).sum()
+                
+                if perfect_ratings > len(self.data) * 0.3:  # >30% perfect ratings
+                    fraud_signals.append({
+                        'type': 'SUSPICIOUS_RATINGS',
+                        'count': int(perfect_ratings),
+                        'severity': 'MEDIUM',
+                        'description': f'{perfect_ratings} products with perfect 5.0 rating (potential fake reviews)'
+                    })
+            
+            # 4. Duplicate listings check
+            title_cols = [col for col in self.data.columns if any(word in col.lower() for word in ['title', 'name', 'product'])]
+            if title_cols:
+                title_col = title_cols[0]
+                duplicates = self.data[title_col].duplicated().sum()
+                if duplicates > 0:
+                    fraud_signals.append({
+                        'type': 'DUPLICATE_LISTINGS',
+                        'count': int(duplicates),
+                        'severity': 'LOW',
+                        'description': f'{duplicates} potential duplicate product listings'
+                    })
+            
+            result['fraud_signals'] = fraud_signals
+            result['suspicious_count'] = sum(f['count'] for f in fraud_signals)
+            result['risk_level'] = 'HIGH' if any(f['severity'] == 'HIGH' for f in fraud_signals) else 'MEDIUM' if fraud_signals else 'LOW'
+            result['available'] = True
+            
+            result['insights'] = f"""
+🚨 FRAUD DETECTION ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ RISK LEVEL: {result['risk_level']}
+📊 Total Suspicious Items: {result['suspicious_count']:,}
+
+🔍 FRAUD SIGNALS DETECTED:
+{chr(10).join([f"• [{f['severity']}] {f['type']}: {f['count']:,} items - {f['description']}" for f in fraud_signals]) if fraud_signals else '• No significant fraud signals detected'}
+
+💡 RECOMMENDED ACTIONS:
+1. Review {sum(f['count'] for f in fraud_signals if f['type'] == 'MISLEADING_DISCOUNT')} misleading discount listings
+2. Verify {sum(f['count'] for f in fraud_signals if f['type'] == 'INFLATED_ACTUAL_PRICE')} inflated price items
+3. Investigate {sum(f['count'] for f in fraud_signals if f['type'] == 'SUSPICIOUS_RATINGS')} products with suspicious ratings
+4. Check {sum(f['count'] for f in fraud_signals if f['type'] == 'DUPLICATE_LISTINGS')} duplicate listings
+
+🛡️ PREVENTION TIPS:
+• Set up automated alerts for >70% discounts
+• Implement price validation rules
+• Monitor rating patterns for anomalies
+• Regular duplicate listing audits
+"""
+            return result
+            
+        except Exception as e:
+            return {'available': False, 'message': f'Fraud detection failed: {str(e)}', 'insights': str(e)}
+
     def llm_product_intelligence(self):
         """Universal categorical analysis - works with ANY dataset"""
         if not self.categorical_cols or not self.value_col:

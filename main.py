@@ -8,8 +8,8 @@ def main():
     args = parser.parse_args()
 
     if args.task == 'sales':
-        pipeline = SalesPipeline('datasets/sales/sample_sales.csv')
-        result = pipeline.run()
+        pipeline = SalesPipeline('datasets/sales/output.xlsx', analysis_mode='advanced')
+        result = pipeline.run()dayed
         print(result)
     elif args.task == 'resume':
         pipeline = ResumePipeline('datasets/resumes/sample_resume.txt')
