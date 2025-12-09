@@ -9,7 +9,7 @@ def main():
 
     if args.task == 'sales':
         pipeline = SalesPipeline('datasets/sales/output.xlsx', analysis_mode='advanced')
-        result = pipeline.run()dayed
+        result = pipeline.run()
         print(result)
     elif args.task == 'resume':
         pipeline = ResumePipeline('datasets/resumes/sample_resume.txt')
