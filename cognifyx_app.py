@@ -1371,17 +1371,22 @@ def main():
                 else:
                     st.warning("Engine not initialized")
                 
-                with col2:
+                # Action buttons
+                st.markdown("---")
+                action_col1, action_col2, action_col3 = st.columns(3)
+                
+                with action_col2:
                     json_data = json.dumps(results, indent=2, default=str)
                     st.download_button(
                         "📊 Download Data (JSON)",
                         data=json_data,
                         file_name=f"cognifyx_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                        mime="application/json"
+                        mime="application/json",
+                        use_container_width=True
                     )
                 
-                with col3:
-                    if st.button("🔄 New Analysis"):
+                with action_col3:
+                    if st.button("🔄 New Analysis", use_container_width=True):
                         st.session_state.analysis_complete = False
                         st.session_state.results = None
                         st.rerun()
