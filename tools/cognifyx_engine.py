@@ -254,11 +254,20 @@ class CognifyXEngine:
                 prediction = base_prediction + (growth_rate * (i + 1)) * seasonal_adj
                 predicted_values.append(float(max(prediction, 0)))
             
-            forecast_explanation = f"""
-            Based on analyzing {len(recent_values)} periods of {self.value_col} data, the trajectory shows 
-            {'positive growth' if growth_rate > 0 else 'declining trend'} with average change of {abs(growth_rate):,.2f} per period.
-            The forecast projects this trend forward considering historical patterns.
+            # Delegate reasoning to Worker Agent
+            worker_task_prompt = f"""
+            Analyze the following forecasting data and provide a clear explanation relative to business impact.
+            
+            Context:
+            {context}
+            
+            Generated Forecast Values: {predicted_values}
+            Seasonal Factors Used: {seasonal_factors}
+            
+            Explain the trend, growth rate, and confidence level in simple business terms.
             """
+            
+            forecast_reasoning = self.worker.execute_task(worker_task_prompt)
             
             return {
                 'available': True,
@@ -266,7 +275,7 @@ class CognifyXEngine:
                 'forecasted_sales': predicted_values,
                 'trend': 'increasing' if growth_rate > 0 else 'decreasing',
                 'monthly_growth_rate': float(growth_rate),
-                'reasoning': forecast_explanation,
+                'reasoning': forecast_reasoning,
                 'confidence': 'High' if abs(growth_rate) < avg_value * 0.1 else 'Medium',
                 'current_value': float(recent_values[-1]),
                 'avg_value': float(avg_value)
@@ -369,15 +378,27 @@ class CognifyXEngine:
                         'Order ID': float(seg_data[value_count_col]),
                         'Customer ID': int(seg_data[self.entity_col]),
                         'Label': seg_data['Label'],
-                        'insight': f"This segment has {seg_data[self.entity_col]} entities with average {self.value_col} of {seg_data[value_sum_col]:,.2f}"
+                        'insight': f"{seg_data['Label']}: {int(seg_data[self.entity_col])} entities, Avg Value: {seg_data[value_sum_col]:,.0f}"
                     }
+            
+            # Worker Agent: Analyze segmentation
+            worker_prompt = f"""
+            Analyze the following customer/entity segmentation.
+            
+            Segments:
+            {json.dumps(segment_insights, indent=2, default=str)}
+            
+            Task: Provide a strategic insight on how to treat the top performing segment vs the lowest performing one.
+            """
+            segmentation_analysis = self.worker.execute_task(worker_prompt)
             
             return {
                 'available': True,
                 'entity_column': self.entity_col,
                 'value_column': self.value_col,
                 'segments': segment_insights,
-                'total_entities': len(entity_metrics)
+                'total_entities': len(entity_metrics),
+                'insights': segmentation_analysis
             }
         except Exception as e:
             return {
@@ -446,22 +467,16 @@ class CognifyXEngine:
             total_outliers = sum(f['count'] for f in anomalies['findings'] if f['type'] == 'statistical_outlier')
             negative_values = sum(f['count'] for f in anomalies['findings'] if f['type'] == 'negative_values')
             
-            anomaly_narrative = f"""
-            ANOMALY DETECTION ANALYSIS
+            # Worker Agent: Analyze anomalies
+            worker_prompt = f"""
+            Analyze the following anomaly detection findings and provide a risk assessment.
             
-            Identified {total_outliers} statistical outliers across {len([f for f in anomalies['findings'] if f['type'] == 'statistical_outlier'])} numeric columns.
-            These values deviate significantly from normal patterns and warrant investigation.
+            Findings:
+            {anomalies['findings']}
             
-            Found {negative_values} negative values in columns that should be positive.
-            This suggests data quality issues or processing errors.
-            
-            Missing data detected in {len([f for f in anomalies['findings'] if f['type'] == 'missing_data'])} columns.
-            
-            REASONING: These patterns indicate potential issues with:
-            1. Data collection or entry processes
-            2. System validation rules
-            3. Business logic enforcement
+            Task: Explain the business risk of these anomalies and suggest 3 investigation steps.
             """
+            anomaly_narrative = self.worker.execute_task(worker_prompt)
             
             anomalies['sales_outliers_count'] = total_outliers
             anomalies['negative_profit_orders'] = negative_values
@@ -478,6 +493,10 @@ class CognifyXEngine:
                 'message': f'Anomaly detection failed: {str(e)}',
                 'risk_level': 'UNKNOWN'
             }
+
+    def ecommerce_fraud_detection(self):
+        """Scans for suspicious patterns in e-commerce data"""
+        return self.llm_anomaly_detection() 
     
     def ecommerce_price_intelligence(self):
         """E-commerce price analysis - monitors price changes, discounts, and pricing strategies"""
@@ -552,26 +571,22 @@ class CognifyXEngine:
                 }
             
             result['available'] = True
-            result['insights'] = f"""
-💲 PRICE INTELLIGENCE ANALYSIS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 Price Range: ₹{result['price_stats'].get('min_price', 0):,.0f} - ₹{result['price_stats'].get('max_price', 0):,.0f}
-📈 Average Price: ₹{result['price_stats'].get('avg_price', 0):,.2f}
-📉 Median Price: ₹{result['price_stats'].get('median_price', 0):,.2f}
-
-🏷️ DISCOUNT INSIGHTS:
-• Average Discount: {result.get('discount_analysis', {}).get('avg_discount', 0):.1f}%
-• Products with Discounts: {result.get('discount_analysis', {}).get('products_with_discount', 0):,}
-• High Discounts (>50%): {result.get('discount_analysis', {}).get('high_discount_count', 0):,}
-• ⚠️ Suspicious (>80%): {result.get('discount_analysis', {}).get('suspicious_discounts', 0):,}
-
-🚨 PRICE ANOMALIES: {result.get('price_anomalies', {}).get('count', 0)} items flagged ({result.get('price_anomalies', {}).get('percentage', 0):.2f}%)
-
-💡 RECOMMENDATIONS:
-1. Review {result.get('discount_analysis', {}).get('suspicious_discounts', 0)} items with >80% discount for fake listings
-2. Monitor {result.get('price_anomalies', {}).get('count', 0)} price anomalies for pricing errors
-3. Consider dynamic pricing for {result.get('price_tiers', {}).get('Mid-range (25-75th)', 0)} mid-range products
-"""
+            # Worker Agent: Price Insights
+            worker_prompt = f"""
+            Analyze the following e-commerce pricing data.
+            
+            Stats:
+            - Average Price: {result['price_stats'].get('avg_price', 0):.2f}
+            - Discount Avg: {result.get('discount_analysis', {}).get('avg_discount', 0):.1f}%
+            - Suspicious Discounts (>80%): {result.get('discount_analysis', {}).get('suspicious_discounts', 0)}
+            - Price Anomalies: {result.get('price_anomalies', {}).get('count', 0)}
+            
+            Task: Provide pricing strategy recommendations and flag any risks.
+            """
+            price_insights = self.worker.execute_task(worker_prompt)
+            
+            result['available'] = True
+            result['insights'] = price_insights
             return result
             
         except Exception as e:
@@ -616,23 +631,19 @@ class CognifyXEngine:
                     result['restock_urgency'] = list(worst_categories.index)
                 
                 result['available'] = True
-                result['insights'] = f"""
-📦 STOCK PREDICTION ANALYSIS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 Total Products: {result['stock_stats']['total_products']:,}
-✅ In Stock: {result['stock_stats']['in_stock']:,} ({result['stock_stats']['stock_rate']:.1f}%)
-❌ Out of Stock: {result['stock_stats']['out_of_stock']:,} ({100 - result['stock_stats']['stock_rate']:.1f}%)
-
-🚨 URGENT RESTOCK NEEDED:
-Categories with highest out-of-stock rates:
-{chr(10).join([f"• {cat}" for cat in result.get('restock_urgency', [])[:5]])}
-
-💡 AI RECOMMENDATIONS:
-1. Prioritize restocking {result['stock_stats']['out_of_stock']:,} out-of-stock items
-2. Focus on categories with >50% stockout rate
-3. Set up low-stock alerts for fast-moving items
-4. Analyze demand patterns before bulk ordering
-"""
+                # Worker Agent: Stock Insights
+                worker_prompt = f"""
+                Analyze the following stock/inventory data.
+                
+                Stats:
+                - Out of Stock Items: {result['stock_stats'].get('out_of_stock', 0)}
+                - Low Stock Items: {result['stock_stats'].get('low_stock', 0)}
+                - Restock Urgency (Top Categories): {result.get('restock_urgency', [])[:5]}
+                
+                Task: Recommend an inventory restock strategy.
+                """
+                stock_insights = self.worker.execute_task(worker_prompt)
+                result['insights'] = stock_insights
             else:
                 result['available'] = False
                 result['message'] = 'No stock/inventory columns found'
@@ -711,30 +722,21 @@ Categories with highest out-of-stock rates:
                     result['trusted_sellers'] = list(trusted.nlargest(10, 'avg_rating').index)
             
             result['available'] = True
-            result['insights'] = f"""
-⭐ SELLER TRUST ANALYSIS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 RATING OVERVIEW:
-• Average Rating: {result.get('rating_stats', {}).get('avg_rating', 0):.2f}/5.0
-• High Rated (≥4.0): {result.get('rating_stats', {}).get('high_rated', 0):,} products
-• Low Rated (<3.0): {result.get('rating_stats', {}).get('low_rated', 0):,} products
-• Unrated: {result.get('rating_stats', {}).get('unrated', 0):,} products
 
-🏪 SELLER INSIGHTS:
-• Total Sellers: {result.get('seller_stats', {}).get('total_sellers', 0):,}
-• Top Seller: {result.get('seller_stats', {}).get('top_seller', 'N/A')}
-• Average Products/Seller: {result.get('seller_stats', {}).get('avg_products_per_seller', 0):.1f}
-
-🚨 TRUST FLAGS:
-• Flagged Sellers (Low Rating + High Volume): {len(result.get('flagged_sellers', []))}
-• Trusted Sellers (High Rating): {len(result.get('trusted_sellers', []))}
-
-💡 RECOMMENDATIONS:
-1. Review {len(result.get('flagged_sellers', []))} flagged sellers for quality issues
-2. Feature products from {len(result.get('trusted_sellers', []))} trusted sellers
-3. Investigate {result.get('rating_stats', {}).get('unrated', 0):,} unrated products
-4. Monitor sellers with sudden rating drops
-"""
+            # Worker Agent: Trust Insights
+            worker_prompt = f"""
+            Analyze the following seller trust metrics.
+            
+            Stats:
+            - Avg Rating: {result.get('rating_stats', {}).get('avg_rating', 0):.2f}/5
+            - Flagged Sellers (Low Quality): {len(result.get('flagged_sellers', []))}
+            - Trusted Sellers: {len(result.get('trusted_sellers', []))}
+            - Unrated Products: {result.get('rating_stats', {}).get('unrated', 0)}
+            
+            Task: Suggest actions to improve vendor quality and trust.
+            """
+            trust_insights = self.worker.execute_task(worker_prompt)
+            result['insights'] = trust_insights
             return result
             
         except Exception as e:
@@ -797,28 +799,19 @@ Categories with highest out-of-stock rates:
                     result['subcategory_distribution'] = dict(sub_cat_counts.head(15))
             
             result['available'] = True
-            result['insights'] = f"""
-🏷️ BRAND & CATEGORY INTELLIGENCE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏢 BRAND OVERVIEW:
-• Total Brands: {result.get('brand_stats', {}).get('total_brands', 0):,}
-• Leading Brand: {result.get('brand_stats', {}).get('top_brand', 'N/A')}
-• Products from Top Brand: {result.get('brand_stats', {}).get('top_brand_products', 0):,}
-
-📂 CATEGORY OVERVIEW:
-• Total Categories: {result.get('category_stats', {}).get('total_categories', 0):,}
-• Top Category: {result.get('category_stats', {}).get('top_category', 'N/A')}
-• Products in Top Category: {result.get('category_stats', {}).get('top_category_products', 0):,}
-
-🏆 TOP PERFORMING BRANDS:
-{chr(10).join([f"• {brand}: {count} products" for brand, count in result.get('top_brands', [])[:5]])}
-
-💡 STRATEGIC RECOMMENDATIONS:
-1. Feature products from top {len(result.get('best_rated_brands', []))} best-rated brands
-2. Expand inventory in {result.get('category_stats', {}).get('top_category', 'top')} category
-3. Partner with emerging brands showing high ratings
-4. Monitor brand performance trends monthly
-"""
+            # Worker Agent: Brand Insights
+            worker_prompt = f"""
+            Analyze the following brand and category intelligence.
+            
+            Stats:
+            - Top Brand: {result.get('brand_stats', {}).get('top_brand', 'N/A')}
+            - Top Category: {result.get('category_stats', {}).get('top_category', 'N/A')}
+            - Best Rated Brands: {len(result.get('best_rated_brands', []))}
+            
+            Task: Provide a brand strategy recommendation.
+            """
+            brand_insights = self.worker.execute_task(worker_prompt)
+            result['insights'] = brand_insights
             return result
             
         except Exception as e:
@@ -970,22 +963,22 @@ Categories with highest out-of-stock rates:
             best = category_analysis[self.value_col].idxmax()
             worst = category_analysis[self.value_col].idxmin()
             
-            insights = f"""
-            CATEGORICAL ANALYSIS INSIGHTS
+            # Worker Agent: Generate insights
+            worker_prompt = f"""
+            Analyze the following product/category performance.
             
-            Analyzing by: {primary_cat}
-            Value metric: {self.value_col}
+            Grouping: {primary_cat}
+            Metric: {self.value_col}
             
-            Top performer: {best} with {category_analysis.loc[best, self.value_col]:,.2f}
-            Lowest performer: {worst} with {category_analysis.loc[worst, self.value_col]:,.2f}
+            Top 5 Performers:
+            {top_categories[self.value_col].to_dict()}
             
-            Total categories analyzed: {len(category_analysis)}
+            Bottom 5 Performers:
+            {bottom_categories[self.value_col].to_dict()}
             
-            STRATEGIC RECOMMENDATIONS:
-            - Focus resources on top-performing {primary_cat} categories
-            - Investigate underperformance in bottom categories
-            - Consider reallocation of resources based on performance data
+            Task: Provide actionable advice on portfolio optimization.
             """
+            insights = self.worker.execute_task(worker_prompt)
             
             return {
                 'available': True,
@@ -1063,8 +1056,8 @@ Categories with highest out-of-stock rates:
     def generate_executive_summary(self):
         """Generate comprehensive executive summary using multi-agent reasoning"""
         
-        # Step 1: Planner analyzes and creates strategy
-        plan = self.planner.plan("Analyze comprehensive data and generate actionable business insights")
+        # Step 1: Planner - Analyze metadata and create strategy
+        plan = self.planner.plan(self.get_basic_metrics().get('dataset_info', {}))
         
         # Step 2: Worker executes detailed analysis
         metrics = self.get_basic_metrics()
@@ -1073,178 +1066,46 @@ Categories with highest out-of-stock rates:
         anomalies = self.llm_anomaly_detection()
         products = self.llm_product_intelligence()
         
-        # Calculate additional context (if applicable)
-        peak_month = "N/A"
-        lowest_month = "N/A"
+        # E-commerce specific analysis (Run if applicable / efficient)
+        ecommerce_context = {}
+        if any('price' in col.lower() for col in self.numeric_cols): 
+             ecommerce_context['price_intel'] = self.ecommerce_price_intelligence()
+        if any(w in col.lower() for w in ['stock', 'inventory'] for col in self.numeric_cols):
+             ecommerce_context['stock_pred'] = self.ecommerce_stock_prediction()
+        if any(w in col.lower() for w in ['seller', 'vendor'] for col in self.categorical_cols):
+             ecommerce_context['seller_trust'] = self.ecommerce_seller_trust()
+        if any('brand' in col.lower() for col in self.categorical_cols):
+             ecommerce_context['brand_analysis'] = self.ecommerce_brand_analysis()
+        ecommerce_context['fraud_detection'] = self.ecommerce_fraud_detection()
         
-        if self.date_col and self.value_col:
-            try:
-                self.data['_period_summary'] = pd.to_datetime(self.data[self.date_col]).dt.to_period('M')
-                monthly_data = self.data.groupby('_period_summary')[self.value_col].sum()
-                peak_month = str(monthly_data.idxmax())
-                lowest_month = str(monthly_data.idxmin())
-            except:
-                pass
-        
-        # Step 3: Generate AI narrative (dynamic)
-        dataset_name = metrics['dataset_info']['name']
-        total_rows = metrics['dataset_info']['rows']
-        total_cols = metrics['dataset_info']['columns']
-        
-        # Get primary numeric value
-        primary_value = "N/A"
-        if 'numeric_summary' in metrics and metrics['numeric_summary']:
-            first_num_col = list(metrics['numeric_summary'].keys())[0]
-            primary_value = f"{metrics['numeric_summary'][first_num_col]['sum']:,.2f}"
-        
-        # Get entity count
-        entity_count = metrics.get('entity_metrics', {}).get('total_entities', 'N/A')
-        
-        # Generate use-case specific insights
+        # Generate helper insights
         use_cases = self._generate_use_cases(metrics, forecast, segments, products, anomalies)
         business_value = self._generate_business_value(metrics, forecast, segments)
         
-        executive_summary = f"""
-{"=" * 80}
-COGNIFYX INTELLIGENCE REPORT - MULTI-AGENT ANALYSIS
-{"=" * 80}
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Dataset: {dataset_name}
-Analysis Type: {'Time-Series Forecasting' if self.date_col else 'Cross-Sectional Analysis'}
-
-📊 DATASET OVERVIEW
-   Records: {total_rows:,} | Columns: {total_cols} | Quality: {100 - float(metrics['data_quality']['missing_percentage'].rstrip('%')):.1f}%
-   Numeric Columns: {len(self.numeric_cols)} | Categorical: {len(self.categorical_cols)} | Dates: {len(self.date_cols)}
-   Primary Value: {primary_value} | Entities: {entity_count}
-
-{"=" * 80}
+        # Compile Context for Reviewer
+        context = {
+            'planner_strategy': plan,
+            'dataset_info': metrics.get('dataset_info', {}),
+            'numeric_summary': metrics.get('numeric_summary', {}),
+            'categorical_summary': metrics.get('categorical_summary', {}),
+            'forecast_analysis': {k:v for k,v in forecast.items() if k != 'forecasted_sales'}, 
+            'customer_segments': segments,
+            'anomalies_detected': anomalies,
+            'product_intelligence': products,
+            'ecommerce_insights': ecommerce_context,
+            'suggested_use_cases': use_cases,
+            'business_value_props': business_value
+        }
         
-        🔍 KEY INSIGHTS
-        
-        1. TREND ANALYSIS
-           - Forecast available: {'Yes' if forecast.get('available') else 'No'}
-           - Trend direction: {forecast.get('trend', 'N/A').upper()}
-           - Growth rate: {forecast.get('monthly_growth_rate', 0):+,.2f} per period
-           - Confidence level: {forecast.get('confidence', 'N/A')}
-        
-        2. ENTITY SEGMENTATION
-           - Segmentation available: {'Yes' if segments.get('available') else 'No'}
-           - Total entities: {segments.get('total_entities', 'N/A')}
-           - Segments identified: {len(segments.get('segments', {}))}
-           - Entity column: {segments.get('entity_column', 'N/A')}
-        
-        3. CATEGORICAL ANALYSIS
-           - Analysis available: {'Yes' if products.get('available') else 'No'}
-           - Grouping by: {products.get('grouping_column', 'N/A')}
-           - Categories found: {len(products.get('category_performance', {}))}
-           - Value metric: {products.get('value_column', 'N/A')}
-        
-        ═══════════════════════════════════════════════════════════════
-        
-        📈 PATTERNS & TRENDS
-        
-        • Time Patterns: Peak period {peak_month}, Low period {lowest_month}
-        • Segmentation: {len(segments.get('segments', {}))} distinct segments identified
-        • Growth Direction: {forecast.get('trend', 'unknown').capitalize()}
-        • Data Stability: {forecast.get('confidence', 'Unknown')} confidence level
-        
-        ═══════════════════════════════════════════════════════════════
-        
-        💡 OPPORTUNITIES
-        
-        {segments.get('message', products.get('insights', 'Analysis complete'))}
-        
-        KEY RECOMMENDATIONS:
-        • Focus on top-performing segments/categories
-        • Address data quality issues ({metrics['data_quality']['missing_values']} missing values)
-        • Leverage {forecast.get('trend', 'stable')} trend for planning
-        • Investigate {anomalies.get('risk_level', 'MEDIUM')} risk areas
-        
-        ═══════════════════════════════════════════════════════════════
-        
-        ⚠️ RISKS & ALERTS
-        
-        • Anomalies detected: {anomalies.get('sales_outliers_count', 0)}
-        • Risk Level: {anomalies.get('risk_level', 'UNKNOWN')}
-        • Data quality issues: {len(anomalies.get('findings', []))} types
-        • Total findings: {sum(f.get('count', 0) for f in anomalies.get('findings', []))}
-        
-        IMMEDIATE ACTIONS:
-        - Review anomalous data points
-        - Address missing value issues
-        - Validate data collection processes
-        
-        ═══════════════════════════════════════════════════════════════
-        
-        🎯 AI-POWERED USE CASES FOR THIS DATA
-        
-"""
-        
-        # Add dynamic use cases
-        for idx, use_case in enumerate(use_cases[:10], 1):
-            executive_summary += f"        {idx}. {use_case}\n"
-        
-        executive_summary += f"""
-        
-        ═══════════════════════════════════════════════════════════════
-        
-        💡 STRATEGIC RECOMMENDATIONS
-        
-        Based on multi-agent analysis of {dataset_name}:
-        
-        IMMEDIATE ACTIONS (24-48 HOURS):
-        1. Address {metrics['data_quality']['missing_values']} missing data points
-        2. Investigate {anomalies.get('risk_level', 'MEDIUM')} risk anomalies
-        3. Review top {len(segments.get('segments', {}))} segments for opportunities
-        
-        GROWTH OPPORTUNITIES (THIS WEEK):
-        1. Leverage {forecast.get('trend', 'stable')} trend for inventory planning
-        2. Focus marketing on high-value segments
-        3. Optimize {len(products.get('category_performance', {}))} underperforming categories
-        
-        LONG-TERM STRATEGY (THIS QUARTER):
-        1. Enhance data quality and completeness
-        2. Expand top-performing segments and categories
-        3. Implement continuous AI-powered monitoring
-        
-        ═══════════════════════════════════════════════════════════════
-        
-        💼 BUSINESS VALUE & ROI
-        
-"""
-        
-        # Add business value propositions
-        for value in business_value:
-            executive_summary += f"        {value}\n"
-        
-        executive_summary += f"""
-        
-        ═══════════════════════════════════════════════════════════════
-        
-        📊 ANALYSIS CONFIDENCE & VALIDATION
-        
-        Analysis Quality: HIGH ⭐⭐⭐⭐⭐
-        Data Coverage: {len(self.data):,} records analyzed
-        Columns Processed: {len(self.numeric_cols)} numeric | {len(self.categorical_cols)} categorical | {len(self.date_cols)} date
-        Validation Status: ✅ Multi-agent verified (Planner → Worker → Reviewer)
-        Models Used: {self.planner_model} + {self.worker_model} + {self.reviewer_model}
-        
-        ═══════════════════════════════════════════════════════════════
-        
-        🤖 Powered by CognifyX Multi-Agent Intelligence System
-        Combining data science, multi-agent reasoning, and LLM intelligence
-        for actionable business insights from ANY dataset.
-        """
-        
-        # Step 4: Reviewer validates the analysis
-        validation = self.reviewer.validate(executive_summary)
+        # Step 3: Reviewer generates the final report using the Context
+        report_text = self.reviewer.review(context)
         
         return {
-            'executive_summary': executive_summary,
-            'validation_status': validation,
+            'executive_summary': report_text,
+            'validation_status': "Generated & Validated by Reviewer Agent",
             'generated_at': datetime.now().isoformat()
         }
-    
+        
     def generate_comprehensive_report(self):
         """Generate full intelligence report with all modules"""
         self.load_and_preprocess()

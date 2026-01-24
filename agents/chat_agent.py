@@ -56,10 +56,11 @@ class ChatAgent:
         # Validation/Retry Loop
         max_retries = 2
         for attempt in range(max_retries + 1):
+            code_block = "No code extracted"
             try:
                 # 1. Generate Logic
                 response = ollama.chat(model=self.model, messages=[
-                    {'role': 'system', 'content': 'You are a Python Data Analysis expert. Write code to solve the user problem.'},
+                    {'role': 'system', 'content': 'You are CognifyX, an expert Python Data Analyst part of a Multi-Agent AI system. Write precise Python code to solve the user problem. Focus on insights.'},
                     {'role': 'user', 'content': prompt}
                 ])
                 llm_output = response['message']['content']

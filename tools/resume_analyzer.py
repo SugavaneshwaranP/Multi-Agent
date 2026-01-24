@@ -250,6 +250,20 @@ class ResumeAnalyzer:
                 categories = self.data[cat_col].value_counts().head(10)
                 category_skills = {cat: int(count) for cat, count in categories.items()}
             
+
+            # Worker Agent: Generate dynamic insights
+            worker_prompt = f"""
+            Analyze the following resume skill data and provide a professional insight.
+            
+            Data:
+            - Total Resumes: {len(self.data)}
+            - Top Technical Skills: {tech_top[:5]}
+            - Top Soft Skills: {soft_top[:5]}
+            
+            Task: Summarize the key strengths of this candidate pool in 1-2 sentences.
+            """
+            skill_insights = self.worker.execute_task(worker_prompt)
+            
             return {
                 'available': True,
                 'total_skills_found': len(top_skills),
@@ -262,10 +276,7 @@ class ResumeAnalyzer:
                     'total_unique': len(top_skills)
                 },
                 'category_distribution': category_skills,
-                'insights': f"Analyzed {len(self.data)} resumes and found {len(top_skills)} distinct skills. "
-                           f"Top technical skill: {tech_top[0][0] if tech_top else 'N/A'} ({tech_top[0][1] if tech_top else 0} resumes). "
-                           f"Most common soft skill: {soft_top[0][0] if soft_top else 'N/A'} ({soft_top[0][1] if soft_top else 0} resumes). "
-                           f"Searched across {len(search_cols)} text columns."
+                'insights': skill_insights
             }
             
         except Exception as e:
@@ -306,6 +317,20 @@ class ResumeAnalyzer:
                 'Expert (10+ years)': (exp_values > 10).sum()
             }
             
+            # Worker Agent: Insights
+            worker_prompt = f"""
+            Analyze the following experience data of candidates.
+            
+            Stats:
+            - Average: {float(exp_values.mean()):.1f} years
+            - Median: {float(exp_values.median()):.1f} years
+            - Range: {float(exp_values.min())} - {float(exp_values.max())}
+            - Distribution: {categories}
+            
+            Task: Provide a short insight on the seniority level of this pool.
+            """
+            exp_insights = self.worker.execute_task(worker_prompt)
+            
             return {
                 'available': True,
                 'experience_column': exp_col,
@@ -314,8 +339,7 @@ class ResumeAnalyzer:
                 'min_experience': float(exp_values.min()),
                 'max_experience': float(exp_values.max()),
                 'distribution': categories,
-                'insights': f"Average experience: {exp_values.mean():.1f} years. "
-                           f"Most candidates are {max(categories, key=categories.get)}."
+                'insights': exp_insights
             }
             
         except Exception as e:
@@ -349,14 +373,24 @@ class ResumeAnalyzer:
             
             total_classified = sum(levels.values())
             
+            # Worker Agent: Education Insights
+            worker_prompt = f"""
+            Analyze the education distribution of the candidate pool.
+            
+            Distribution: {levels}
+            Total Classified: {total_classified} / {len(self.data)}
+            
+            Task: Assess the academic qualification level of the pool.
+            """
+            edu_insights = self.worker.execute_task(worker_prompt)
+            
             return {
                 'available': True,
                 'education_column': edu_col,
                 'total_resumes': len(self.data),
                 'classified': total_classified,
                 'distribution': levels,
-                'insights': f"Analyzed education for {len(self.data)} resumes. "
-                           f"Most common qualification: {max(levels, key=levels.get)} ({levels[max(levels, key=levels.get)]} candidates)."
+                'insights': edu_insights
             }
             
         except Exception as e:
@@ -394,14 +428,23 @@ class ResumeAnalyzer:
             top_candidates = self.data.loc[top_indices].copy()
             top_candidates['score'] = scores.loc[top_indices, 'total_score']
             
+            # Worker Agent: Ranking Insights
+            worker_prompt = f"""
+            Analyze the top ranked candidates from the pool.
+            
+            Top 3 Candidates Preview:
+            {top_candidates.head(3).to_dict('records')}
+            
+            Task: Comment on the quality of the top candidates.
+            """
+            ranking_insights = self.worker.execute_task(worker_prompt)
+            
             return {
                 'available': True,
                 'total_candidates': len(self.data),
                 'scoring_criteria': list(scores.columns),
                 'top_10_candidates': top_candidates.to_dict('records'),
-                'insights': f"Ranked {len(self.data)} candidates. "
-                           f"Top candidate scored {scores['total_score'].max():.2f}. "
-                           f"Average score: {scores['total_score'].mean():.2f}"
+                'insights': ranking_insights
             }
             
         except Exception as e:
@@ -467,111 +510,57 @@ class ResumeAnalyzer:
         
         return recommendations
     
-    def generate_resume_report(self):
+    def generate_resume_report(self, skills=None, experience=None, education=None, ranking=None):
         """Generate comprehensive resume analysis report with actionable insights"""
-        load_result = self.load_and_preprocess()
-        
+        if self.data is None:
+            load_result = self.load_and_preprocess()
+        else:
+            load_result = {'success': True, 'total_resumes': len(self.data)}
+            
         if not load_result.get('success'):
             return {
                 'error': load_result.get('error'),
                 'available': False
             }
+            
+        # Planner: Generate strategy
+        plan = self.planner.plan({
+            'source': 'Resume Analysis',
+            'count': load_result.get('total_resumes', 0),
+            'type': self.data_type
+        })
         
-        # Run all analyses
-        skills = self.extract_skills()
-        experience = self.analyze_experience()
-        education = self.analyze_education()
-        ranking = self.candidate_ranking()
+        # Worker: Execute analyses (if not provided)
+        if skills is None: skills = self.extract_skills()
+        if experience is None: experience = self.analyze_experience()
+        if education is None: education = self.analyze_education()
+        if ranking is None: ranking = self.candidate_ranking()
         
         # Generate intelligent recommendations
         recommendations = self.generate_hiring_recommendations(skills, experience, education, ranking)
         
-        # Build executive summary with actionable insights
-        summary_parts = [
-            "=" * 80,
-            "COGNIFYX RESUME INTELLIGENCE REPORT",
-            "=" * 80,
-            f"\n📊 DATASET OVERVIEW",
-            f"   Source: {self.data_source}",
-            f"   Total Resumes: {len(self.data):,}",
-            f"   Data Type: {self.data_type.upper()}",
-            f"   Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        ]
+        # Build context for Reviewer
+        context = {
+            'planner_strategy': plan,
+            'analysis_type': 'Resume & HR Intelligence',
+            'dataset_info': {
+                'source': self.data_source,
+                'total_resumes': len(self.data),
+                'data_type': self.data_type
+            },
+            'skills_analysis': {k:v for k,v in skills.items() if k != 'all_top_skills'}, # slim down
+            'experience_analysis': experience,
+            'education_analysis': education,
+            'candidate_ranking_summary': {
+                'total_candidates': ranking.get('total_candidates'),
+                'scoring_criteria': ranking.get('scoring_criteria'),
+                'top_candidates_preview': ranking.get('top_10_candidates', [])[:5]
+            },
+            'heuristic_recommendations': recommendations
+        }
         
-        # Skills insights
-        if skills.get('available'):
-            summary_parts.extend([
-                f"\n💻 SKILLS ANALYSIS",
-                f"   {skills.get('insights', 'Not available')}",
-                f"   Total Unique Skills: {skills['skill_distribution']['total_unique']}",
-                f"   Technical Skills Found: {skills['skill_distribution']['technical']}",
-                f"   Soft Skills Found: {skills['skill_distribution']['soft']}",
-                f"\n   🔥 Top 5 Technical Skills:"
-            ])
-            for skill, count in skills.get('top_technical_skills', [])[:5]:
-                percentage = (count / len(self.data)) * 100
-                summary_parts.append(f"      • {skill}: {count} resumes ({percentage:.1f}%)")
-        
-        # Experience insights
-        if experience.get('available'):
-            summary_parts.extend([
-                f"\n💼 EXPERIENCE ANALYSIS",
-                f"   {experience.get('insights', 'Not available')}",
-                f"   Average: {experience['average_experience']:.1f} years",
-                f"   Range: {experience['min_experience']:.0f} - {experience['max_experience']:.0f} years",
-                f"   Median: {experience['median_experience']:.1f} years"
-            ])
-        
-        # Education insights
-        if education.get('available'):
-            summary_parts.extend([
-                f"\n🎓 EDUCATION ANALYSIS",
-                f"   {education.get('insights', 'Not available')}",
-                f"   Distribution:"
-            ])
-            for qual, count in sorted(education['distribution'].items(), key=lambda x: x[1], reverse=True):
-                percentage = (count / len(self.data)) * 100
-                summary_parts.append(f"      • {qual}: {count} ({percentage:.1f}%)")
-        
-        # Candidate ranking insights
-        if ranking.get('available'):
-            summary_parts.extend([
-                f"\n🏆 CANDIDATE RANKING",
-                f"   {ranking.get('insights', 'Not available')}",
-                f"   Total Evaluated: {ranking['total_candidates']:,}",
-                f"   Scoring Criteria: {', '.join(ranking['scoring_criteria'][:3])}"
-            ])
-        
-        # Strategic recommendations
-        if recommendations:
-            summary_parts.extend([
-                f"\n⚡ STRATEGIC RECOMMENDATIONS",
-                f"   Generated {len(recommendations)} actionable insights:\n"
-            ])
-            for rec in recommendations:
-                summary_parts.extend([
-                    f"   [{rec['priority']}] {rec['category']}",
-                    f"      💡 {rec['insight']}",
-                    f"      ✅ {rec['action']}\n"
-                ])
-        
-        # Use cases and value proposition
-        summary_parts.extend([
-            f"\n🎯 KEY USE CASES FOR THIS ANALYSIS:",
-            f"   1. Talent Pool Optimization - Identify high-supply skill areas",
-            f"   2. Compensation Planning - Align offers with experience levels",
-            f"   3. Job Description Refinement - Focus on in-demand skills",
-            f"   4. Recruitment Strategy - Target abundant candidate categories",
-            f"   5. Screening Automation - Prioritize top-scoring candidates",
-            f"\n💼 BUSINESS VALUE:",
-            f"   • Reduce time-to-hire by targeting abundant talent pools",
-            f"   • Optimize recruitment ROI by focusing on qualified candidates",
-            f"   • Data-driven hiring decisions backed by {len(self.data):,} resume analysis",
-            f"   • Competitive intelligence on skill trends in the market",
-            "=" * 80
-        ])
-        
-        summary_context = "\n".join(summary_parts)
+        # Reviewer generates executive summary
+        summary_context = self.reviewer.review(context)
         
         return {
             'available': True,

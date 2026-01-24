@@ -4,6 +4,10 @@ Interactive Streamlit interface for CognifyX Engine
 Supports: Sales Data, Resume Analysis, Generic CSV
 """
 
+import os
+# Mock OpenAI Key to bypass CrewAI default validation (running purely local)
+os.environ["OPENAI_API_KEY"] = "NA"
+
 import streamlit as st
 import pandas as pd
 
@@ -30,6 +34,12 @@ from ui.components import (
     display_agent_logs
 )
 from ui.chat_ui import render_chat_tab
+from ui.agentic_ui import (
+    inject_premium_css,
+    render_agent_status_mirror,
+    render_premium_chat,
+    render_live_data_feed
+)
 
 st.set_page_config(
     page_title="CognifyX Intelligence Platform",
@@ -129,6 +139,14 @@ def init_session_state():
         st.session_state.agent_logs = []
     if 'start_analysis' not in st.session_state:
         st.session_state.start_analysis = False
+    
+    # Store models in session state for UI
+    if 'planner_model' not in st.session_state:
+        st.session_state.planner_model = "llama3"
+    if 'worker_model' not in st.session_state:
+        st.session_state.worker_model = "mistral"
+    if 'reviewer_model' not in st.session_state:
+        st.session_state.reviewer_model = "qwen2.5"
 
 
 
@@ -174,6 +192,7 @@ def detect_dataset_type(file_path):
 def main():
     """Main application"""
     init_session_state()
+    inject_premium_css()
     
     # Header
     st.markdown("""
@@ -214,6 +233,11 @@ def main():
             help="Quality validation and review"
         )
         
+        # Update session state models
+        st.session_state.planner_model = planner_model
+        st.session_state.worker_model = worker_model
+        st.session_state.reviewer_model = reviewer_model
+        
         st.markdown(f"""
             <div style='background: #1f2937; padding: 10px; border-radius: 5px; margin-top: 10px;'>
                 <p style='margin: 0; font-size: 12px;'>
@@ -243,6 +267,13 @@ def main():
                 # Detect dataset type
                 dataset_type = detect_dataset_type(file_path)
                 st.info(f"📊 Detected: {dataset_type.upper()} dataset")
+                # Trigger agent welcome for new upload
+                if 'p_messages' in st.session_state:
+                    st.session_state.p_messages.append({
+                        "role": "assistant",
+                        "content": f"I see you've uploaded a new {dataset_type} dataset. I'm ready to analyze it using my multi-agent team. Click 'Start Analysis' to begin the neural processing.",
+                        "timestamp": datetime.now().strftime("%H:%M:%S")
+                    })
             else:
                 file_path = None
         elif dataset == "E-Commerce Products (30K)":
@@ -388,7 +419,12 @@ def main():
                 # Generate Report
                 status_text.text(f"🤖 Multi-agent collaboration: Generating report...")
                 log_agent_activity(planner_model, "Coordinating resume report")
-                summary = analyzer.generate_resume_report()
+                summary = analyzer.generate_resume_report(
+                    skills=skills, 
+                    experience=experience, 
+                    education=education, 
+                    ranking=ranking
+                )
                 log_agent_activity(reviewer_model, "Validating analysis quality")
                 progress_bar.progress(100)
                 time.sleep(0.5)
@@ -637,7 +673,7 @@ def main():
                 "💼 Experience",
                 "🎓 Education",
                 "🏆 Top Candidates",
-                "💬 AI Chat"
+                "🤖 Agent Intelligence"
             ])
             
             with tab1:
@@ -721,41 +757,42 @@ def main():
                     st.warning("Candidate ranking not available")
 
             with tab5:
-                if 'analyzer' in st.session_state:
-                    render_chat_tab(st.session_state.analyzer, planner_model)
-                else:
-                    st.warning("Analyzer not initialized")
+                # Premium Agent Intelligence Tab
+                render_agent_status_mirror()
+                
+                col_chat, col_feed = st.columns([3, 2])
+                with col_chat:
+                    render_premium_chat(st.session_state.analyzer, planner_model)
+                with col_feed:
+                    render_live_data_feed(st.session_state.analyzer.data if hasattr(st.session_state.analyzer, 'data') else None)
             
             # Executive Summary with Recommendations
             st.markdown("---")
             st.markdown("## 📋 Executive Summary & Recommendations")
             summary = results.get('summary', {})
-            if summary.get('available'):
-                # Show recommendations prominently
-                if summary.get('recommendations'):
-                    st.markdown("### ⚡ Strategic Recommendations")
-                    for rec in summary['recommendations']:
-                        priority_color = '#ef4444' if rec['priority'] == 'HIGH' else '#f59e0b' if rec['priority'] == 'MEDIUM' else '#3b82f6'
-                        st.markdown(f"""
-                            <div style='background: #1f2937; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid {priority_color};'>
-                                <h4 style='margin: 0; color: {priority_color};'>[{rec['priority']}] {rec['category']}</h4>
-                                <p style='margin: 10px 0;'><strong>💡 Insight:</strong> {rec['insight']}</p>
-                                <p style='margin: 5px 0;'><strong>✅ Action:</strong> {rec['action']}</p>
-                            </div>
-                        """, unsafe_allow_html=True)
+            
+            # Display full agent-generated report first
+            if summary.get('executive_summary'):
+                st.markdown(summary['executive_summary'])
                 
-                # Show use cases
-                if summary.get('use_cases'):
-                    st.markdown("### 🎯 Business Use Cases")
-                    cols = st.columns(3)
-                    for idx, use_case in enumerate(summary['use_cases']):
-                        with cols[idx % 3]:
-                            st.info(f"✓ {use_case}")
-                
-                st.markdown("### 📊 Full Analysis Report")
-                st.markdown(summary.get('executive_summary', 'Summary not available'))
-            else:
-                st.warning("Summary not available")
+            elif isinstance(summary, str):
+                st.markdown(summary)
+            
+            # Optional: Display structured widgets if available (legacy support)
+            if isinstance(summary, dict) and summary.get('recommendations'):
+                st.markdown("### ⚡ Strategic Actions (Auto-Generated)")
+                for rec in summary['recommendations']:
+                    priority_color = '#ef4444' if rec.get('priority') == 'HIGH' else '#f59e0b' if rec.get('priority') == 'MEDIUM' else '#3b82f6'
+                    st.markdown(f"""
+                        <div style='background: #1f2937; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid {priority_color};'>
+                            <h4 style='margin: 0; color: {priority_color};'>[{rec.get('priority', 'INFO')}] {rec.get('category', 'Recommendation')}</h4>
+                            <p style='margin: 10px 0;'><strong>💡 Insight:</strong> {rec.get('insight', '')}</p>
+                            <p style='margin: 5px 0;'><strong>✅ Action:</strong> {rec.get('action', '')}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+            
+            if not summary:
+                 st.warning("Summary not available")
             
         elif dataset_type == 'ecommerce':
             # E-COMMERCE ANALYTICS DASHBOARD
@@ -815,16 +852,26 @@ def main():
             
             # E-commerce Tabs
             tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+                "🤖 Agent Intelligence",
                 "💲 Price Intelligence",
                 "📦 Stock Prediction",
                 "⭐ Seller Trust",
                 "🏷️ Brand Analysis",
                 "🚨 Fraud Detection",
-                "📋 AI Insights",
-                "💬 AI Chat"
+                "📋 AI Insights"
             ])
             
             with tab1:
+                # Premium Agent Intelligence Tab
+                render_agent_status_mirror()
+                
+                col_chat, col_feed = st.columns([3, 2])
+                with col_chat:
+                    render_premium_chat(st.session_state.engine, planner_model)
+                with col_feed:
+                    render_live_data_feed(st.session_state.engine.data if hasattr(st.session_state.engine, 'data') else None)
+
+            with tab2:
                 st.markdown("### 💲 Price Intelligence & Dynamic Pricing")
                 if price_intel.get('available'):
                     col1, col2 = st.columns([2, 1])
@@ -1094,11 +1141,7 @@ def main():
                     with st.expander(f"📊 {title}"):
                         st.markdown(f"```\n{insight}\n```")
             
-            with tab7:
-                if 'engine' in st.session_state:
-                    render_chat_tab(st.session_state.engine, planner_model)
-                else:
-                    st.warning("Engine not initialized")
+            # Legacy chat removed
         
         else:
             # SALES/GENERIC ANALYTICS DASHBOARD
@@ -1158,18 +1201,27 @@ def main():
             
             st.markdown("---")
             
-            # Tabs for different views - Sales/Generic focused
             tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+                "🤖 Agent Intelligence",
                 "📈 Forecast & Trends", 
                 "👥 Segmentation", 
                 "🎯 Products/Categories", 
                 "🚨 Anomalies",
                 "📊 Metrics", 
-                "📋 AI Summary",
-                "💬 AI Chat"
+                "📋 AI Summary"
             ])
             
             with tab1:
+                # Premium Agent Intelligence Tab
+                render_agent_status_mirror()
+                
+                col_chat, col_feed = st.columns([3, 2])
+                with col_chat:
+                    render_premium_chat(st.session_state.engine, planner_model)
+                with col_feed:
+                    render_live_data_feed(st.session_state.engine.data if hasattr(st.session_state.engine, 'data') else None)
+
+            with tab2:
                 st.markdown("### 📈 Trend Analysis & Forecasting")
                 
                 if results.get('forecast', {}).get('available'):
@@ -1204,7 +1256,7 @@ def main():
                     st.warning("⚠️ Forecast data not available")
                     st.info("💡 Upload data with date/time columns for forecasting")
             
-            with tab2:
+            with tab3:
                 st.markdown("### 👥 Entity Segmentation Analysis")
                 
                 if results.get('segments', {}).get('available'):
@@ -1232,7 +1284,7 @@ def main():
                     st.warning("⚠️ Segmentation not available")
                     st.info("💡 Upload data with entity columns for segmentation")
             
-            with tab3:
+            with tab4:
                 st.markdown("### 🎯 Category/Product Intelligence")
                 
                 if results.get('products', {}).get('available'):
@@ -1259,7 +1311,7 @@ def main():
                     st.warning("⚠️ Category data not available")
                     st.info("💡 Upload data with categorical columns")
             
-            with tab4:
+            with tab5:
                 st.markdown("### 🚨 Anomaly Detection")
                 
                 if results.get('anomalies', {}).get('available'):
@@ -1299,7 +1351,7 @@ def main():
                 else:
                     st.info("🔍 Anomaly detection not available")
             
-            with tab5:
+            with tab6:
                 st.markdown("### 📊 Dataset Metrics Overview")
                 
                 metrics = results.get('metrics', {})
@@ -1328,28 +1380,27 @@ def main():
                     st.markdown("### ✅ Data Quality")
                     st.success(f"Data completeness: {100 - float(metrics['data_quality']['missing_percentage'].rstrip('%')):.1f}%")
             
-            with tab6:
+            with tab7:
                 st.markdown("### 📋 AI-Powered Executive Summary")
                 
-                st.markdown(f"""
-                    <div style='background: #1f2937; padding: 20px; border-radius: 10px; border-left: 4px solid #3b82f6;'>
-                        <pre style='color: #e5e7eb; font-size: 13px; white-space: pre-wrap; font-family: monospace;'>
-{results.get('summary', {}).get('executive_summary', 'No summary available')}
-                        </pre>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                # Show recommendations if available
                 summary = results.get('summary', {})
-                if summary.get('recommendations'):
-                    st.markdown("### ⚡ Strategic Recommendations")
+                
+                # Display full agent-generated report first
+                if summary.get('executive_summary'):
+                    st.markdown(summary['executive_summary'])
+                elif isinstance(summary, str):
+                    st.markdown(summary)
+                    
+                # Show recommendations if available (Legacy support)
+                if isinstance(summary, dict) and summary.get('recommendations'):
+                    st.markdown("### ⚡ Strategic Actions (Auto-Generated)")
                     for rec in summary['recommendations']:
-                        priority_color = '#ef4444' if rec['priority'] == 'HIGH' else '#f59e0b' if rec['priority'] == 'MEDIUM' else '#3b82f6'
+                        priority_color = '#ef4444' if rec.get('priority') == 'HIGH' else '#f59e0b' if rec.get('priority') == 'MEDIUM' else '#3b82f6'
                         st.markdown(f"""
                             <div style='background: #1f2937; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid {priority_color};'>
-                                <h4 style='margin: 0; color: {priority_color};'>[{rec['priority']}] {rec['category']}</h4>
-                                <p style='margin: 10px 0;'><strong>💡 Insight:</strong> {rec['insight']}</p>
-                                <p style='margin: 5px 0;'><strong>✅ Action:</strong> {rec['action']}</p>
+                                <h4 style='margin: 0; color: {priority_color};'>[{rec.get('priority', 'INFO')}] {rec.get('category', 'Recommendation')}</h4>
+                                <p style='margin: 10px 0;'><strong>💡 Insight:</strong> {rec.get('insight', '')}</p>
+                                <p style='margin: 5px 0;'><strong>✅ Action:</strong> {rec.get('action', '')}</p>
                             </div>
                         """, unsafe_allow_html=True)
                 
@@ -1360,16 +1411,10 @@ def main():
                 with col1:
                     st.download_button(
                         "📄 Download Summary (TXT)",
-                        data=results.get('summary', {}).get('executive_summary', 'No summary'),
+                        data=summary.get('executive_summary', 'No summary'),
                         file_name=f"cognifyx_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
                         mime="text/plain"
                     )
-            
-            with tab7:
-                if 'engine' in st.session_state:
-                    render_chat_tab(st.session_state.engine, planner_model)
-                else:
-                    st.warning("Engine not initialized")
                 
                 # Action buttons
                 st.markdown("---")
