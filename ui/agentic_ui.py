@@ -166,11 +166,13 @@ def render_premium_chat(data_source_obj, model_name="llama3"):
             st.session_state.last_dataset = id(data_source_obj)
 
     if st.session_state.suggested_tasks:
-        st.markdown("#### ⚡ Neural Action Items (One-Click Automation)")
-        cols = st.columns(len(st.session_state.suggested_tasks))
-        for idx, task in enumerate(st.session_state.suggested_tasks):
+        st.markdown("#### 🧠 Top Strategic Questions")
+        # Ensure only top 3 are shown
+        top_tasks = st.session_state.suggested_tasks[:3]
+        cols = st.columns(len(top_tasks))
+        for idx, task in enumerate(top_tasks):
             with cols[idx]:
-                if st.button(f"🚀 {task}", key=f"task_{idx}", use_container_width=True):
+                if st.button(f"❓ {task}", key=f"task_{idx}", use_container_width=True):
                     # Set prompt manually to trigger processing
                     st.session_state.manual_prompt = task
     

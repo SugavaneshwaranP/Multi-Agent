@@ -139,6 +139,10 @@ def init_session_state():
         st.session_state.agent_logs = []
     if 'start_analysis' not in st.session_state:
         st.session_state.start_analysis = False
+    if 'current_step' not in st.session_state:
+        st.session_state.current_step = 0
+    if 'file_path' not in st.session_state:
+        st.session_state.file_path = None
     
     # Store models in session state for UI
     if 'planner_model' not in st.session_state:
@@ -206,56 +210,77 @@ def main():
     
     st.markdown("---")
     
-    # Sidebar Configuration
-    with st.sidebar:
-        st.markdown("## ⚙️ Agent Configuration")
+    # Implementation of Step-based UI
+    
+    # Step 0: Model Selection
+    if st.session_state.current_step == 0:
+        st.markdown("## 1️⃣ Configure Your Multi-Agent Team")
+        st.markdown("Select the neural models for your specialized AI agents.")
         
-        st.markdown("### 🤖 Multi-Agent System")
+        col1, col2, col3 = st.columns(3)
         
-        planner_model = st.selectbox(
-            "Planner Agent",
-            ["llama3", "mistral", "qwen2.5"],
-            index=0,
-            help="Strategic planning and task decomposition"
-        )
-        
-        worker_model = st.selectbox(
-            "Worker Agent", 
-            ["llama3", "mistral", "qwen2.5"],
-            index=1,
-            help="Data analysis and execution"
-        )
-        
-        reviewer_model = st.selectbox(
-            "Reviewer Agent",
-            ["llama3", "mistral", "qwen2.5"],
-            index=2,
-            help="Quality validation and review"
-        )
-        
-        # Update session state models
-        st.session_state.planner_model = planner_model
-        st.session_state.worker_model = worker_model
-        st.session_state.reviewer_model = reviewer_model
-        
-        st.markdown(f"""
-            <div style='background: #1f2937; padding: 10px; border-radius: 5px; margin-top: 10px;'>
-                <p style='margin: 0; font-size: 12px;'>
-                    <strong>Pipeline:</strong><br>
-                    {planner_model} → {worker_model} → {reviewer_model}
-                </p>
-            </div>
-        """, unsafe_allow_html=True)
-        
+        with col1:
+            st.markdown("""
+                <div style='background: #1e3a8a; padding: 15px; border-radius: 10px; border-left: 4px solid #60a5fa;'>
+                    <h3 style='margin: 0; color: #fff;'>Planner Agent</h3>
+                    <p style='font-size: 12px; color: #9ca3af;'>Strategic planning & decomposition</p>
+                </div>
+            """, unsafe_allow_html=True)
+            planner_model = st.selectbox(
+                "Select Planner Model",
+                ["llama3", "mistral", "qwen2.5"],
+                index=0,
+                key="planner_select"
+            )
+            st.session_state.planner_model = planner_model
+            
+        with col2:
+            st.markdown("""
+                <div style='background: #1e3a8a; padding: 15px; border-radius: 10px; border-left: 4px solid #60a5fa;'>
+                    <h3 style='margin: 0; color: #fff;'>Worker Agent</h3>
+                    <p style='font-size: 12px; color: #9ca3af;'>Data analysis & execution</p>
+                </div>
+            """, unsafe_allow_html=True)
+            worker_model = st.selectbox(
+                "Select Worker Model",
+                ["llama3", "mistral", "qwen2.5"],
+                index=1,
+                key="worker_select"
+            )
+            st.session_state.worker_model = worker_model
+            
+        with col3:
+            st.markdown("""
+                <div style='background: #1e3a8a; padding: 15px; border-radius: 10px; border-left: 4px solid #60a5fa;'>
+                    <h3 style='margin: 0; color: #fff;'>Reviewer Agent</h3>
+                    <p style='font-size: 12px; color: #9ca3af;'>Quality validation & review</p>
+                </div>
+            """, unsafe_allow_html=True)
+            reviewer_model = st.selectbox(
+                "Select Reviewer Model",
+                ["llama3", "mistral", "qwen2.5"],
+                index=2,
+                key="reviewer_select"
+            )
+            st.session_state.reviewer_model = reviewer_model
+            
         st.markdown("---")
+        if st.button("Continue to Dataset Selection ➡️", use_container_width=True):
+            st.session_state.current_step = 1
+            st.rerun()
+
+    # Step 1: Dataset Selection
+    elif st.session_state.current_step == 1:
+        st.markdown("## 2️⃣ Upload or Select Dataset")
+        st.markdown("Provide the data you want the multi-agent team to analyze.")
         
-        st.markdown("### 📊 Data Source")
         dataset = st.selectbox(
-            "Select Dataset",
+            "Select Data Source",
             ["E-Commerce Products (30K)", "Resume PDFs (500 samples)", "Resume Dataset (CSV)", "Upload Custom"],
             index=0
         )
         
+        file_path = None
         if dataset == "Upload Custom":
             uploaded_file = st.file_uploader("Upload CSV/Excel", type=['csv', 'xlsx', 'xls'])
             if uploaded_file:
@@ -264,67 +289,77 @@ def main():
                 with open(file_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 st.success(f"✅ Uploaded: {uploaded_file.name}")
-                # Detect dataset type
+                st.session_state.file_path = file_path
                 dataset_type = detect_dataset_type(file_path)
                 st.info(f"📊 Detected: {dataset_type.upper()} dataset")
-                # Trigger agent welcome for new upload
-                if 'p_messages' in st.session_state:
-                    st.session_state.p_messages.append({
-                        "role": "assistant",
-                        "content": f"I see you've uploaded a new {dataset_type} dataset. I'm ready to analyze it using my multi-agent team. Click 'Start Analysis' to begin the neural processing.",
-                        "timestamp": datetime.now().strftime("%H:%M:%S")
-                    })
-            else:
-                file_path = None
         elif dataset == "E-Commerce Products (30K)":
             file_path = "datasets/sales/output.xlsx"
             if os.path.exists(file_path):
                 st.success("✅ E-commerce dataset ready (30,000 products)")
-                st.info("📊 Includes: prices, ratings, brands, categories, discounts, stock data")
+                st.session_state.file_path = file_path
             else:
                 st.error("❌ E-commerce dataset not found")
-                file_path = None
         elif dataset == "Resume PDFs (500 samples)":
             file_path = "datasets/resumes/data/data"
             if os.path.exists(file_path):
-                pdf_count = len(glob.glob(os.path.join(file_path, '**', '*.pdf'), recursive=True))
-                st.success(f"✅ Found {pdf_count} PDF resumes in {len(os.listdir(file_path))} categories")
-                st.info("📁 Will process first 500 PDFs for performance")
+                st.success(f"✅ Resume PDF folder ready")
+                st.session_state.file_path = file_path
             else:
                 st.error("❌ Resume PDF folder not found")
-                file_path = None
         elif dataset == "Resume Dataset (CSV)":
             file_path = "datasets/resumes/Resume/Resume.csv"
             if os.path.exists(file_path):
                 st.success("✅ Resume CSV dataset ready")
+                st.session_state.file_path = file_path
             else:
                 st.error("❌ Resume dataset not found")
-                file_path = None
-        if 'last_selected_dataset' not in st.session_state:
-            st.session_state.last_selected_dataset = dataset
-            
-        if st.session_state.last_selected_dataset != dataset:
-            st.session_state.last_selected_dataset = dataset
-            if 'suggested_tasks' in st.session_state:
-                del st.session_state['suggested_tasks']
-            if 'p_messages' in st.session_state:
-                # Reset to first message only
-                st.session_state.p_messages = st.session_state.p_messages[:1]
-        
+
         st.markdown("---")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⬅️ Back to Models", use_container_width=True):
+                st.session_state.current_step = 0
+                st.rerun()
+        with col2:
+            if st.button("Continue to Analysis ➡️", use_container_width=True):
+                if st.session_state.file_path:
+                    st.session_state.current_step = 2
+                    st.rerun()
+                else:
+                    st.error("Please select or upload a dataset first")
+
+    # Step 2: Analyse Button
+    elif st.session_state.current_step == 2:
+        st.markdown("## 3️⃣ Start Neural Analysis")
+        st.markdown(f"""
+            <div style='background: #111827; padding: 20px; border-radius: 10px; border: 1px solid #374151;'>
+                <h4 style='color: #60a5fa;'>Ready for Processing</h4>
+                <p><strong>Team:</strong> {st.session_state.planner_model} → {st.session_state.worker_model} → {st.session_state.reviewer_model}</p>
+                <p><strong>Dataset:</strong> {st.session_state.file_path}</p>
+            </div>
+        """, unsafe_allow_html=True)
         
-        # Action Button
-        if st.button("🚀 Start Analysis", use_container_width=True, type="primary"):
-            if file_path:
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("⬅️ Back to Dataset", use_container_width=True):
+                st.session_state.current_step = 1
+                st.rerun()
+        with col2:
+            if st.button("🚀 START ANALYSIS", use_container_width=True, type="primary"):
                 st.session_state.analysis_complete = False
                 st.session_state.agent_logs = []
                 st.session_state.start_analysis = True
+                st.session_state.current_step = 3
                 st.rerun()
-            else:
-                st.error("⚠️ Please select or upload a dataset first!")
-    
-    # Main Content Area
-    if st.session_state.get('start_analysis', False) and not st.session_state.analysis_complete and file_path:
+
+    # Step 3: Analysis Progress (Main Content Area)
+    elif st.session_state.current_step == 3:
+        file_path = st.session_state.file_path
+        planner_model = st.session_state.planner_model
+        worker_model = st.session_state.worker_model
+        reviewer_model = st.session_state.reviewer_model
         st.session_state.start_analysis = False
         # Agent Status Dashboard
         st.markdown("## 🤖 Multi-Agent Intelligence System")
@@ -620,6 +655,8 @@ def main():
                 st.session_state.engine = engine
             
             st.session_state.analysis_complete = True
+            st.session_state.start_analysis = False
+            st.session_state.current_step = 4
             
             # Display logs
             with log_placeholder.container():
@@ -633,10 +670,23 @@ def main():
             st.error(f"❌ Error during analysis: {str(e)}")
             log_agent_activity("SYSTEM", f"Error: {str(e)}")
     
-    elif st.session_state.analysis_complete and st.session_state.results:
+    # Step 4: Results & AI Agent Chatbot
+    elif st.session_state.current_step == 4 and st.session_state.results:
         results = st.session_state.results
-        dataset_type = st.session_state.get('dataset_type', 'sales')
+        # Detect dataset type if not already in session state
+        if 'dataset_type' not in st.session_state:
+            st.session_state.dataset_type = detect_dataset_type(st.session_state.file_path)
+        dataset_type = st.session_state.dataset_type
         
+        # Sidebar Reset Button
+        with st.sidebar:
+            if st.button("🔄 Start New Analysis", use_container_width=True):
+                st.session_state.current_step = 0
+                st.session_state.analysis_complete = False
+                st.session_state.results = None
+                st.session_state.file_path = None
+                st.rerun()
+
         # Agent Status - Complete
         st.markdown("## 🤖 Multi-Agent Intelligence System")
         col1, col2, col3 = st.columns(3)
@@ -679,14 +729,24 @@ def main():
             
             # Resume Tabs
             tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                "🤖 Agent Intelligence",
                 "🔧 Skills Analysis",
                 "💼 Experience",
                 "🎓 Education",
-                "🏆 Top Candidates",
-                "🤖 Agent Intelligence"
+                "🏆 Top Candidates"
             ])
             
             with tab1:
+                # Premium Agent Intelligence Tab
+                render_agent_status_mirror()
+                
+                col_chat, col_feed = st.columns([3, 2])
+                with col_chat:
+                    render_premium_chat(st.session_state.analyzer, st.session_state.planner_model)
+                with col_feed:
+                    render_live_data_feed(st.session_state.analyzer.data if hasattr(st.session_state.analyzer, 'data') else None)
+
+            with tab2:
                 st.markdown("### 🔧 Skills Distribution")
                 if skills.get('available'):
                     fig = create_skills_chart(skills)
@@ -716,7 +776,7 @@ def main():
                 else:
                     st.warning("Skills analysis not available")
             
-            with tab2:
+            with tab3:
                 st.markdown("### 💼 Experience Distribution")
                 if experience.get('available'):
                     fig = create_experience_chart(experience)
@@ -734,7 +794,7 @@ def main():
                 else:
                     st.warning("Experience analysis not available")
             
-            with tab3:
+            with tab4:
                 st.markdown("### 🎓 Education Qualifications")
                 if education.get('available'):
                     fig = create_education_chart(education)
@@ -748,7 +808,7 @@ def main():
                 else:
                     st.warning("Education analysis not available")
             
-            with tab4:
+            with tab5:
                 st.markdown("### 🏆 Top Ranked Candidates")
                 if ranking.get('available'):
                     st.markdown(f"**Total Candidates:** {ranking['total_candidates']}")
@@ -765,16 +825,6 @@ def main():
                                         st.markdown(f"**{key}:** {value}")
                 else:
                     st.warning("Candidate ranking not available")
-
-            with tab5:
-                # Premium Agent Intelligence Tab
-                render_agent_status_mirror()
-                
-                col_chat, col_feed = st.columns([3, 2])
-                with col_chat:
-                    render_premium_chat(st.session_state.analyzer, planner_model)
-                with col_feed:
-                    render_live_data_feed(st.session_state.analyzer.data if hasattr(st.session_state.analyzer, 'data') else None)
             
             # Executive Summary with Recommendations
             st.markdown("---")
