@@ -3,14 +3,14 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 
 def create_sales_trend_chart(data):
-    """Create interactive sales trend chart"""
+    """Create interactive agent activity trend chart"""
     fig = go.Figure()
     
     fig.add_trace(go.Scatter(
         x=list(range(len(data))),
         y=data,
         mode='lines+markers',
-        name='Sales',
+        name='Activity',
         line=dict(color='#3b82f6', width=3),
         marker=dict(size=8, color='#60a5fa'),
         fill='tonexty',
@@ -18,9 +18,9 @@ def create_sales_trend_chart(data):
     ))
     
     fig.update_layout(
-        title='Sales Trend Analysis',
-        xaxis_title='Period',
-        yaxis_title='Sales ($)',
+        title='Neural Activity Trend Analysis',
+        xaxis_title='Interaction Sequential Cycle',
+        yaxis_title='Activity Level (Scaled)',
         template='plotly_dark',
         height=400,
         hovermode='x unified'
@@ -29,7 +29,7 @@ def create_sales_trend_chart(data):
     return fig
 
 def create_customer_segment_chart(segments):
-    """Create customer segmentation visualization"""
+    """Create intent segmentation visualization"""
     labels = [seg['Label'] for seg in segments.values()]
     values = [seg['Customer ID'] for seg in segments.values()]
     
@@ -43,7 +43,7 @@ def create_customer_segment_chart(segments):
     )])
     
     fig.update_layout(
-        title='Customer Segmentation',
+        title='Agent Intent Segmentation',
         template='plotly_dark',
         height=400
     )

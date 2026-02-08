@@ -88,9 +88,27 @@ def inject_premium_css():
             background: rgba(96, 165, 250, 0.5);
         }
         
-        .glow-text {
-            color: #fff;
-            text-shadow: 0 0 10px rgba(96, 165, 250, 0.8), 0 0 20px rgba(96, 165, 250, 0.5);
+        .scanning-bar {
+            height: 4px;
+            width: 100%;
+            background: linear-gradient(90deg, #60a5fa 0%, #10b981 50%, #60a5fa 100%);
+            background-size: 200% 100%;
+            animation: move-gradient 2s linear infinite;
+            border-radius: 2px;
+            margin: 10px 0;
+        }
+
+        @keyframes move-gradient {
+            0% { background-position: 100% 0; }
+            100% { background-position: -100% 0; }
+        }
+
+        .streaming-insight {
+            border-left: 2px solid #60a5fa;
+            padding-left: 15px;
+            margin: 10px 0;
+            font-style: italic;
+            color: #d1d5db;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -139,6 +157,23 @@ def render_premium_chat(data_source_obj, model_name="llama3"):
     # Container for messages
     chat_container = st.container()
     
+    # Discovery Phase - Automated Tasks
+    if 'suggested_tasks' not in st.session_state or st.session_state.get('last_dataset') != (id(data_source_obj)):
+        with st.spinner("🤖 Agent Scanning Dataset for Actionable Tasks..."):
+            df = data_source_obj.data if hasattr(data_source_obj, 'data') else data_source_obj
+            discovery_agent = ChatAgent(df, model=model_name)
+            st.session_state.suggested_tasks = discovery_agent.discover_tasks()
+            st.session_state.last_dataset = id(data_source_obj)
+
+    if st.session_state.suggested_tasks:
+        st.markdown("#### ⚡ Neural Action Items (One-Click Automation)")
+        cols = st.columns(len(st.session_state.suggested_tasks))
+        for idx, task in enumerate(st.session_state.suggested_tasks):
+            with cols[idx]:
+                if st.button(f"🚀 {task}", key=f"task_{idx}", use_container_width=True):
+                    # Set prompt manually to trigger processing
+                    st.session_state.manual_prompt = task
+    
     with chat_container:
         for msg in st.session_state.p_messages:
             with st.chat_message(msg["role"]):
@@ -146,7 +181,16 @@ def render_premium_chat(data_source_obj, model_name="llama3"):
                 st.markdown(msg["content"])
 
     # Chat input
-    if prompt := st.chat_input("Command the agent..."):
+    chat_input_val = st.chat_input("Command the agent...")
+    prompt = None
+    
+    if chat_input_val:
+        prompt = chat_input_val
+    elif st.session_state.get('manual_prompt'):
+        prompt = st.session_state.manual_prompt
+        del st.session_state.manual_prompt
+        
+    if prompt:
         # Log user message
         timestamp = datetime.now().strftime("%H:%M:%S")
         st.session_state.p_messages.append({"role": "user", "content": prompt, "timestamp": timestamp})
@@ -159,23 +203,33 @@ def render_premium_chat(data_source_obj, model_name="llama3"):
         # Assistant response
         with st.chat_message("assistant"):
             thinking_placeholder = st.empty()
-            thinking_placeholder.markdown(f"""
-                <div class="thinking-process">
-                    [SYSTEM] Routing query to {model_name}...<br>
-                    [ANALYSIS] Scanning dataset indices...<br>
-                    [PLANNING] Decomposing request into pandas operations...
-                </div>
-            """, unsafe_allow_html=True)
+            
+            # Simulated Real-time Streaming of thoughts
+            streaming_steps = [
+                f"[SYSTEM] Establishing Neural Connection with {model_name}...",
+                "[METADATA] Ingesting dataset structural indices...",
+                "[NEURAL] Formulating multi-agent strategic plan...",
+                "[COMPUTE] Executing autonomous task automation..."
+            ]
+            
+            status_text = ""
+            for step in streaming_steps:
+                status_text += f"{step}<br>"
+                thinking_placeholder.markdown(f"""
+                    <div class="thinking-process">
+                        {status_text}
+                        <div class="scanning-bar"></div>
+                    </div>
+                """, unsafe_allow_html=True)
+                # Removed artificial delay for speed
             
             try:
                 # Execution
-                if hasattr(data_source_obj, 'data'):
-                    df = data_source_obj.data
-                else:
-                    df = None
+                engine = data_source_obj if not isinstance(data_source_obj, pd.DataFrame) else None
+                df = data_source_obj.data if hasattr(data_source_obj, 'data') else data_source_obj
                 
                 start_time = time.time()
-                agent = ChatAgent(df, model=model_name)
+                agent = ChatAgent(df, model=model_name, engine=engine)
                 response = agent.query(prompt)
                 end_time = time.time()
                 
@@ -184,14 +238,38 @@ def render_premium_chat(data_source_obj, model_name="llama3"):
                 final_timestamp = datetime.now().strftime("%H:%M:%S")
                 lat = end_time - start_time
                 
-                st.markdown(f"<div class='chat-timestamp'>{final_timestamp} | Latency: {lat:.2f}s</div>", unsafe_allow_html=True)
-                st.markdown(response)
-                
-                st.session_state.p_messages.append({
-                    "role": "assistant", 
-                    "content": response, 
-                    "timestamp": final_timestamp
-                })
+                if isinstance(response, dict):
+                    # Autonomous Response
+                    thought = response.get("thought", "Neural processing complete.")
+                    answer = response.get("answer", "Analysis executed.")
+                    code = response.get("code", "")
+                    
+                    st.markdown(f"<div class='chat-timestamp'>{final_timestamp} | Latency: {lat:.2f}s</div>", unsafe_allow_html=True)
+                    
+                    with st.expander("🧠 Neural Thought Process"):
+                        st.markdown(f"<div class='thinking-process'>{thought}</div>", unsafe_allow_html=True)
+                        if code:
+                            st.code(code, language='python')
+                    
+                    st.markdown(answer)
+                    
+                    st.session_state.p_messages.append({
+                        "role": "assistant", 
+                        "content": answer, 
+                        "timestamp": final_timestamp,
+                        "thought": thought,
+                        "code": code
+                    })
+                else:
+                    # Legacy or Error String
+                    st.markdown(f"<div class='chat-timestamp'>{final_timestamp} | Latency: {lat:.2f}s</div>", unsafe_allow_html=True)
+                    st.markdown(response)
+                    
+                    st.session_state.p_messages.append({
+                        "role": "assistant", 
+                        "content": response, 
+                        "timestamp": final_timestamp
+                    })
                 
             except Exception as e:
                 thinking_placeholder.error(f"Execution Error: {str(e)}")

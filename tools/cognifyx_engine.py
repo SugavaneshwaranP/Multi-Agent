@@ -330,27 +330,27 @@ class CognifyXEngine:
             value_med = entity_metrics[value_sum_col].quantile(0.50)
             count_high = entity_metrics[value_count_col].quantile(0.75) if value_count_col in entity_metrics.columns else 1
         
-            # LLM reasoning-based segmentation (dynamic)
+            # LLM reasoning-based segmentation (dynamic) - Agent Focused
             def segment_entity(row):
                 value = row[value_sum_col]
                 count = row.get(value_count_col, 1)
                 
-                # VIP: High value + High frequency
+                # High Impact: High value + High frequency in context
                 if value > value_high and count > count_high:
-                    return {'segment': 0, 'label': 'VIP Tier', 
-                           'description': 'Top performers with high value and frequency'}
-                # High Value: High value, any frequency
+                    return {'segment': 0, 'label': 'High-Impact Personas', 
+                           'description': 'Critical focus areas with maximum interaction density'}
+                # Quality Focus: High value, any frequency
                 elif value > value_high:
-                    return {'segment': 1, 'label': 'High Value',
-                           'description': 'Strong contributors with above-average performance'}
-                # Frequent: Many transactions, moderate value
+                    return {'segment': 1, 'label': 'Critical Success Domains',
+                           'description': 'High-value contexts requiring specialized agent attention'}
+                # Pattern Logic: Many transactions, moderate value
                 elif count > count_high:
-                    return {'segment': 2, 'label': 'Frequent Tier',
-                           'description': 'Active entities with regular engagement'}
-                # Regular: Standard performance
+                    return {'segment': 2, 'label': 'Frequent Request Patterns',
+                           'description': 'Recurring interaction sequences and standard motifs'}
+                # General: Standard performance
                 else:
-                    return {'segment': 3, 'label': 'Regular Tier',
-                           'description': 'Standard entities with growth potential'}
+                    return {'segment': 3, 'label': 'Standard Service Interactions',
+                           'description': 'Routine queries with standard resolution difficulty'}
             
             entity_metrics['segment_info'] = entity_metrics.apply(segment_entity, axis=1)
             entity_metrics['Segment'] = entity_metrics['segment_info'].apply(lambda x: x['segment'])

@@ -6,113 +6,137 @@ import sys
 import io
 
 class ChatAgent:
-    def __init__(self, data: pd.DataFrame, model="llama3"):
+    def __init__(self, data: pd.DataFrame, model="llama3", engine=None):
         self.data = data
         self.model = model
+        self.engine = engine
         
     def query(self, question):
         """
-        Analyze the dataframe and answer the question using Python code generation.
+        Analyze the dataframe and answer the question using Autonomous Agentic Reasoning.
         """
         if self.data is None or self.data.empty:
-            return "No data available to analyze."
+            return "No data available to analyze. Please upload a dataset first."
 
         # Prepare schema description
         buffer = io.StringIO()
         self.data.info(buf=buffer)
         schema_info = buffer.getvalue()
         
-        # Initial code generation prompt
+        # Describe available specialized tools if engine exists
+        tools_description = ""
+        if self.engine:
+            tools_description = """
+            SPECIALIZED TOOLS (Accessible via 'engine' object):
+            - engine.llm_reasoning_forecast(): For predicting future trends.
+            - engine.llm_customer_segmentation(): For intent/entity clustering.
+            - engine.llm_anomaly_detection(): For identifying gaps or outliers.
+            - engine.ecommerce_price_intelligence(): For pricing/discount analysis (if applicable).
+            - engine.ecommerce_stock_prediction(): For inventory insights (if applicable).
+            """
+
+        # Balanced Speed/Intelligence Prompt
         prompt = f"""
-        You are an expert Python Data Analyst.
-        You have a pandas DataFrame named 'df'.
-        
-        DF INFO:
-        {schema_info}
-        
-        SAMPLE DATA:
-        {self.data.head(3).to_markdown()}
-        
-        USER QUESTION: {question}
+        Analyze this DataFrame 'df' and answer: "{question}"
+        {tools_description}
+        SCHEMA: {schema_info}
         
         TASK:
-        Write Python code to answer the question. 
-        1. Access the dataframe using the variable 'df'.
-        2. Perform necessary filtering, aggregation, or calculation.
-        3. Store the FINAL ANSWER in a variable named 'result'.
-        4. If the answer is a plot, using 'result = "Plot generated"' is fine, but focus on text data analysis first.
-        5. Wrap your code strictly in ```python ... ```.
-        6. Do NOT print the result, just assign it to 'result'.
-        7. Use efficient pandas operations.
+        1. [THOUGHT] Plan logic.
+        2. [CODE] Write python code. Assign final info to 'result'.
+        3. [EXPLANATION] Provide a 1-sentence quick summary of the expected finding.
         
-        Example:
+        Format strictly with [THOUGHT], [CODE], [EXPLANATION] tags.
         ```python
-        # Calculate average sales
-        avg_sales = df['sales'].mean()
-        result = f"The average sales is {{avg_sales:.2f}}"
+        # code
         ```
         """
         
         # Validation/Retry Loop
-        max_retries = 2
+        max_retries = 1 # Reduced for speed
         for attempt in range(max_retries + 1):
-            code_block = "No code extracted"
+            code_block = ""
             try:
-                # 1. Generate Logic
+                # 1. Single-Shot Generation
                 response = ollama.chat(model=self.model, messages=[
-                    {'role': 'system', 'content': 'You are CognifyX, an expert Python Data Analyst part of a Multi-Agent AI system. Write precise Python code to solve the user problem. Focus on insights.'},
+                    {'role': 'system', 'content': 'You are CognifyX Fast Intelligence. Perform analysis and explain in one shot.'},
                     {'role': 'user', 'content': prompt}
                 ])
                 llm_output = response['message']['content']
                 
-                # 2. Extract Code
+                # 2. Parallel Extraction
+                thought_match = re.search(r"\[THOUGHT\](.*?)(\[CODE\]|```)", llm_output, re.DOTALL)
+                thought = thought_match.group(1).strip() if thought_match else "Analyzing..."
+                
+                expl_match = re.search(r"\[EXPLANATION\](.*?)$", llm_output, re.DOTALL)
+                prelim_expl = expl_match.group(1).strip() if expl_match else ""
+                
                 code_match = re.search(r"```python(.*?)```", llm_output, re.DOTALL)
-                if not code_match:
-                    if "```" in llm_output:
-                        code_match = re.search(r"```(.*?)```", llm_output, re.DOTALL)
-                
-                if not code_match:
-                    return llm_output # Return text if no code generated
-                
+                if not code_match: continue
                 code_block = code_match.group(1).strip()
                 
-                # 3. Execute Code
-                local_env = {'df': self.data, 'pd': pd, 'result': None}
-                
-                # Capture stdout just in case
-                old_stdout = sys.stdout
-                sys.stdout = io.StringIO()
-                
-                try:
-                    exec(code_block, {}, local_env)
-                    execution_output = sys.stdout.getvalue()
-                finally:
-                    sys.stdout = old_stdout
-                
+                # 3. Execution
+                local_env = {'df': self.data, 'pd': pd, 'engine': self.engine, 'result': None}
+                exec(code_block, {}, local_env)
                 result = local_env.get('result')
                 
-                # 4. Final Formatting (if result is raw data, make it readable)
                 if result is not None:
-                    # Provide context back to LLM to humanize
-                    explain_prompt = f"""
-                    User Question: {question}
-                    Analysis Code Result: {result}
-                    Execution Output: {execution_output}
-                    
-                    Explain this result to the user clearly and professionally.
-                    Answer:
-                    """
-                    final_response = ollama.chat(model=self.model, messages=[
-                        {'role': 'user', 'content': explain_prompt}
-                    ])
-                    return final_response['message']['content']
-                else:
-                    return f"Executed code but no 'result' variable was found.\nOutput: {execution_output}"
-                    
+                    # SMART SPEED: If result is small/string, skip final LLM call
+                    if isinstance(result, str) and len(result) < 200:
+                        final_answer = f"{prelim_expl}\n\n**Result:** {result}"
+                    else:
+                        # Only humanize if complex
+                        final_response = ollama.chat(model=self.model, messages=[
+                            {'role': 'user', 'content': f"Context: {thought}\nResult: {result}\nSummarize briefly."}
+                        ])
+                        final_answer = final_response['message']['content']
+                        
+                    return {
+                        "thought": thought,
+                        "code": code_block,
+                        "answer": final_answer
+                    }
+                
             except Exception as e:
-                error_msg = traceback.format_exc()
-                if attempt < max_retries:
-                    prompt += f"\n\nPREVIOUS CODE FAILED:\n{code_block}\n\nERROR:\n{error_msg}\n\nPlease fix the code and try again."
-                    continue
-                else:
-                    return f"I failed to analyze the data after multiple attempts.\nLast Error: {str(e)}"
+                if attempt == max_retries:
+                    return f"Neural bottleneck. Last Error: {str(e)}"
+
+    def discover_tasks(self):
+        """
+        Analyze the dataframe and suggest automated tasks for the agent.
+        """
+        if self.data is None or self.data.empty:
+            return []
+
+        # Prepare schema description
+        import io
+        import json
+        buffer = io.StringIO()
+        self.data.info(buf=buffer)
+        schema_info = buffer.getvalue()
+        
+        prompt = f"""
+        Analyze this dataset schema and suggest 5 high-value automated analysis tasks.
+        
+        SCHEMA:
+        {schema_info}
+        
+        Return ONLY a JSON list of strings. Each string should be a short, actionable instruction.
+        Example: ["Forecast sales trends", "Identify anomalous records", "Segment customers by value"]
+        """
+        
+        try:
+            response = ollama.chat(model=self.model, messages=[
+                {'role': 'system', 'content': 'You are a task discovery agent. Output ONLY a valid JSON list of 5 strings.'},
+                {'role': 'user', 'content': prompt}
+            ])
+            llm_output = response['message']['content']
+            
+            # Clean JSON
+            json_match = re.search(r"(\[.*\])", llm_output, re.DOTALL)
+            if json_match:
+                tasks = json.loads(json_match.group(1))
+                return tasks[:5]
+            return ["Analyze core metrics", "Detect outliers", "Predict future trends", "Segment analysis", "Quality assessment"]
+        except Exception:
+            return ["Analyze core metrics", "Detect outliers", "Predict future trends", "Segment analysis", "Quality assessment"]

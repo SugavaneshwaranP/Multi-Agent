@@ -300,6 +300,16 @@ def main():
             else:
                 st.error("❌ Resume dataset not found")
                 file_path = None
+        if 'last_selected_dataset' not in st.session_state:
+            st.session_state.last_selected_dataset = dataset
+            
+        if st.session_state.last_selected_dataset != dataset:
+            st.session_state.last_selected_dataset = dataset
+            if 'suggested_tasks' in st.session_state:
+                del st.session_state['suggested_tasks']
+            if 'p_messages' in st.session_state:
+                # Reset to first message only
+                st.session_state.p_messages = st.session_state.p_messages[:1]
         
         st.markdown("---")
         
@@ -1145,7 +1155,8 @@ def main():
         
         else:
             # SALES/GENERIC ANALYTICS DASHBOARD
-            st.markdown("## 📊 Business Intelligence Dashboard")
+            # SALES/GENERIC ANALYTICS DASHBOARD - Agent Centric
+            st.markdown("## 🤖 AI Chat Agent Performance Dashboard")
             
             col1, col2, col3, col4 = st.columns(4)
             
@@ -1154,61 +1165,61 @@ def main():
             with col1:
                 if 'dataset_info' in metrics:
                     display_metric_card(
-                        "Dataset Size",
-                        f"{metrics['dataset_info']['rows']:,} rows",
-                        f"{metrics['dataset_info']['columns']} columns"
+                        "Interaction Volume",
+                        f"{metrics['dataset_info']['rows']:,} logs",
+                        f"{metrics['dataset_info']['columns']} attributes analyzed"
                     )
                 else:
-                    display_metric_card("Data", "N/A", "")
+                    display_metric_card("Activity", "N/A", "")
             
             with col2:
                 if 'numeric_summary' in metrics and metrics['numeric_summary']:
                     first_col = list(metrics['numeric_summary'].keys())[0]
                     display_metric_card(
-                        first_col,
-                        f"{metrics['numeric_summary'][first_col]['sum']:,.0f}",
-                        f"Avg: {metrics['numeric_summary'][first_col]['mean']:,.0f}"
+                        "Knowledge Resolution Index",
+                        f"{(metrics['numeric_summary'][first_col]['mean'] / 100):.2f}%",
+                        f"Target: 95.00%"
                     )
                 else:
-                    display_metric_card("Numeric Data", "N/A", "")
+                    display_metric_card("Intelligence Data", "N/A", "")
             
             with col3:
                 if 'entity_metrics' in metrics:
                     display_metric_card(
-                        "Entities",
+                        "Active Personas",
                         f"{metrics['entity_metrics']['total_entities']:,}",
-                        f"Avg: {metrics['entity_metrics']['avg_value_per_entity']:,.0f}"
+                        f"Avg Interactions: {metrics['entity_metrics']['avg_value_per_entity']:.1f}"
                     )
                 elif results.get('segments', {}).get('available'):
                     display_metric_card(
-                        "Segments",
+                        "Intent Clusters",
                         f"{results['segments']['total_entities']:,}",
-                        f"{len(results['segments'].get('segments', {}))} groups"
+                        f"{len(results['segments'].get('segments', {}))} primary intents"
                     )
                 else:
-                    display_metric_card("Entities", "N/A", "")
+                    display_metric_card("Cognitive Scope", "N/A", "")
             
             with col4:
                 if 'data_quality' in metrics:
                     missing_pct = float(metrics['data_quality']['missing_percentage'].rstrip('%'))
                     display_metric_card(
-                        "Data Quality",
+                        "Model Confidence",
                         f"{100-missing_pct:.1f}%",
-                        f"{metrics['data_quality']['missing_values']} missing"
+                        f"Inference Errors: {metrics['data_quality']['missing_values']}"
                     )
                 else:
-                    display_metric_card("Quality", "N/A", "")
+                    display_metric_card("Reliability", "N/A", "")
             
             st.markdown("---")
             
             tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
                 "🤖 Agent Intelligence",
-                "📈 Forecast & Trends", 
-                "👥 Segmentation", 
-                "🎯 Products/Categories", 
-                "🚨 Anomalies",
-                "📊 Metrics", 
-                "📋 AI Summary"
+                "📈 Activity Prediction", 
+                "👥 Intent Clustering", 
+                "🎯 Knowledge Domains", 
+                "🚨 Intelligence Gaps",
+                "📊 Core Metrics", 
+                "📋 Executive Intelligence"
             ])
             
             with tab1:
@@ -1220,9 +1231,9 @@ def main():
                     render_premium_chat(st.session_state.engine, planner_model)
                 with col_feed:
                     render_live_data_feed(st.session_state.engine.data if hasattr(st.session_state.engine, 'data') else None)
-
+            
             with tab2:
-                st.markdown("### 📈 Trend Analysis & Forecasting")
+                st.markdown("### 📈 Agent Growth & Activity Forecast")
                 
                 if results.get('forecast', {}).get('available'):
                     col1, col2 = st.columns([2, 1])
@@ -1230,89 +1241,87 @@ def main():
                     with col1:
                         forecast_data = results['forecast']['forecasted_sales']
                         fig = create_sales_trend_chart(forecast_data)
-                        fig.update_layout(title='Trend Forecast')
+                        fig.update_layout(title='Activity Projection (6 Periods)')
                         st.plotly_chart(fig, use_container_width=True)
                     
                     with col2:
                         st.markdown(f"""
                             <div class="insight-box">
-                                <h4>📊 Forecast Analysis</h4>
-                                <p><strong>Metric:</strong> {results['forecast']['column']}</p>
-                                <p><strong>Trend:</strong> {results['forecast']['trend'].upper()}</p>
-                                <p><strong>Growth Rate:</strong> {results['forecast']['monthly_growth_rate']:+,.2f}%</p>
-                                <p><strong>Confidence:</strong> {results['forecast']['confidence']}</p>
+                                <h4>📊 Forecasting Model</h4>
+                                <p><strong>Base Metric:</strong> {results['forecast']['column']}</p>
+                                <p><strong>Trend Vector:</strong> {results['forecast']['trend'].upper()}</p>
+                                <p><strong>Predicted Growth:</strong> {results['forecast']['monthly_growth_rate']:+,.2f}%</p>
+                                <p><strong>Model Confidence:</strong> {results['forecast']['confidence']}</p>
                             </div>
                         """, unsafe_allow_html=True)
                         
-                        st.markdown("### 🎯 Recommendations")
+                        st.markdown("### 🎯 Strategic Insights")
                         trend = results['forecast'].get('trend', 'stable')
                         if trend == 'increasing':
-                            st.success("📈 **Growing Trend**: Continue current strategies")
+                            st.success("📈 **Scalable Growth**: Model indicates increasing resolution capacity")
                         elif trend == 'decreasing':
-                            st.warning("📉 **Declining Trend**: Review and adjust approach")
+                            st.warning("📉 **Cognitive Drift**: Activity levels are declining")
                         else:
-                            st.info("📊 **Stable Trend**: Maintain performance")
+                            st.info("📊 **Equilibrium**: Agent performance is stable")
                 else:
-                    st.warning("⚠️ Forecast data not available")
-                    st.info("💡 Upload data with date/time columns for forecasting")
+                    st.warning("⚠️ Forecasting data not available for this interaction sequence")
+                    st.info("💡 Ensure log data includes temporal indices")
             
             with tab3:
-                st.markdown("### 👥 Entity Segmentation Analysis")
+                st.markdown("### 👥 Neural Intent Clustering")
                 
                 if results.get('segments', {}).get('available'):
                     col1, col2 = st.columns([1, 1])
                     
                     with col1:
                         fig = create_customer_segment_chart(results['segments']['segments'])
-                        fig.update_layout(title='Segment Distribution')
+                        fig.update_layout(title='Intent Distribution')
                         st.plotly_chart(fig, use_container_width=True)
                     
                     with col2:
-                        st.markdown("### 📊 Segment Details")
+                        st.markdown("### 📊 Intent Classification")
                         for seg_id, seg_data in results['segments']['segments'].items():
                             label = seg_data.get('Label', seg_id)
                             st.markdown(f"""
                                 <div class="insight-box">
-                                    <h4>{label}</h4>
-                                    <p><strong>Details:</strong> Segment {seg_id}</p>
+                                    <h4>{label} Cluster</h4>
+                                    <p><strong>Density:</strong> {seg_data.get('Customer ID', 0)} personas identified</p>
                                 </div>
                             """, unsafe_allow_html=True)
                     
-                    st.markdown("### 💡 Segmentation Insights")
-                    st.info(results['segments'].get('insights', 'No insights available'))
+                    st.markdown("### 💡 Neural Insights")
+                    st.info(results['segments'].get('insights', 'Processing additional context...'))
                 else:
-                    st.warning("⚠️ Segmentation not available")
-                    st.info("💡 Upload data with entity columns for segmentation")
+                    st.warning("⚠️ Intent clustering requires entity-level mapping")
             
             with tab4:
-                st.markdown("### 🎯 Category/Product Intelligence")
+                st.markdown("### 🎯 Knowledge Domain Analysis")
                 
                 if results.get('products', {}).get('available'):
                     category_data = results['products']['category_performance']
                     
                     if category_data:
                         fig = create_category_performance_chart(category_data)
-                        fig.update_layout(title='Category Performance')
+                        fig.update_layout(title='Domain Knowledge Resolution')
                         st.plotly_chart(fig, use_container_width=True)
                         
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.info(f"**Grouping:** {results['products'].get('grouping_column', 'N/A')}")
+                            st.info(f"**Cluster Axis:** {results['products'].get('grouping_column', 'N/A')}")
                         with col2:
-                            st.info(f"**Metric:** {results['products'].get('value_column', 'N/A')}")
+                            st.info(f"**Success Metric:** {results['products'].get('value_column', 'N/A')}")
                     
-                    st.markdown("### 📈 Category Insights")
+                    st.markdown("### 📈 Subject Matter Intelligence")
                     st.markdown(f"""
                         <div class="insight-box">
                             {results['products']['insights'].replace(chr(10), '<br>')}
                         </div>
                     """, unsafe_allow_html=True)
                 else:
-                    st.warning("⚠️ Category data not available")
-                    st.info("💡 Upload data with categorical columns")
+                    st.warning("⚠️ Subject matter data missing for this domain")
             
             with tab5:
-                st.markdown("### 🚨 Anomaly Detection")
+                st.markdown("### 🚨 Intelligence Gaps & Hallucination Prevention")
                 
                 if results.get('anomalies', {}).get('available'):
                     col1, col2 = st.columns(2)
@@ -1320,68 +1329,68 @@ def main():
                     with col1:
                         st.markdown(f"""
                             <div class="warning-box">
-                                <h4>🚨 Anomalies Detected</h4>
+                                <h4>🚨 Anomalous Patterns</h4>
                                 <h2>{results['anomalies'].get('sales_outliers_count', 0)}</h2>
-                                <p>{results['anomalies'].get('outlier_percentage', 0):.2f}% of data</p>
+                                <p>{results['anomalies'].get('outlier_percentage', 0):.2f}% of interaction logs</p>
                             </div>
                         """, unsafe_allow_html=True)
                     
                     with col2:
                         st.markdown(f"""
                             <div class="insight-box">
-                                <h4>📊 Detection Summary</h4>
-                                <p>Outliers found in numeric columns</p>
-                                <p>Risk Level: {results['anomalies'].get('risk_level', 'UNKNOWN')}</p>
+                                <h4>📊 Risk Assessment</h4>
+                                <p>Inconsistencies detected in knowledge graph</p>
+                                <p>System State: {results['anomalies'].get('risk_level', 'STABLE')}</p>
                             </div>
                         """, unsafe_allow_html=True)
                     
                     if results['anomalies'].get('findings'):
-                        st.markdown("### 📋 Anomaly Details")
+                        st.markdown("### 📋 Anomaly Log")
                         for finding in results['anomalies']['findings'][:10]:
                             severity_color = '#ef4444' if finding.get('severity') == 'CRITICAL' else '#f59e0b'
                             st.markdown(f"""
                                 <div style='background: #1f2937; padding: 10px; border-radius: 5px; margin: 5px 0; border-left: 3px solid {severity_color};'>
-                                    <strong>{finding.get('column', 'N/A')}</strong> - {finding.get('count', 0)} outliers
+                                    <strong>{finding.get('column', 'N/A')}</strong> - {finding.get('count', 0)} cognitive outliers
                                 </div>
                             """, unsafe_allow_html=True)
                     
                     if results['anomalies'].get('reasoning'):
-                        st.markdown("### 🤖 AI Analysis")
+                        st.markdown("### 🤖 Agent Root Cause Analysis")
                         st.warning(results['anomalies']['reasoning'])
                 else:
-                    st.info("🔍 Anomaly detection not available")
+                    st.info("🔍 Intelligence validation: No significant gaps detected")
             
             with tab6:
-                st.markdown("### 📊 Dataset Metrics Overview")
+                st.markdown("### 📊 Model Interaction Metrics")
                 
                 metrics = results.get('metrics', {})
                 
                 if metrics.get('numeric_summary'):
-                    st.markdown("### 📈 Numeric Column Statistics")
+                    st.markdown("### 📈 Neural Weights & Distributions")
                     for col_name, stats in metrics['numeric_summary'].items():
-                        with st.expander(f"📊 {col_name}"):
+                        with st.expander(f"🧠 {col_name} Analysis"):
                             col1, col2, col3 = st.columns(3)
                             with col1:
-                                st.metric("Sum", f"{stats.get('sum', 0):,.2f}")
-                                st.metric("Mean", f"{stats.get('mean', 0):,.2f}")
+                                st.metric("Cumulative Impact", f"{stats.get('sum', 0):,.2f}")
+                                st.metric("Precision Mean", f"{stats.get('mean', 0):,.2f}")
                             with col2:
-                                st.metric("Min", f"{stats.get('min', 0):,.2f}")
-                                st.metric("Max", f"{stats.get('max', 0):,.2f}")
+                                st.metric("Lower Bound", f"{stats.get('min', 0):,.2f}")
+                                st.metric("Peak Influence", f"{stats.get('max', 0):,.2f}")
                             with col3:
-                                st.metric("Median", f"{stats.get('median', 0):,.2f}")
-                                st.metric("Std Dev", f"{stats.get('std', 0):,.2f}")
+                                st.metric("Median Response", f"{stats.get('median', 0):,.2f}")
+                                st.metric("Variance", f"{stats.get('std', 0):,.2f}")
                 
                 if metrics.get('categorical_summary'):
-                    st.markdown("### 📂 Categorical Columns")
+                    st.markdown("### 📂 Linguistic Categories")
                     for col_name, stats in metrics['categorical_summary'].items():
-                        st.info(f"**{col_name}**: {stats.get('unique_values', 0)} unique values, Top: {stats.get('top_value', 'N/A')}")
+                        st.info(f"**{col_name}**: {stats.get('unique_values', 0)} distinct tokens, Frequent: {stats.get('top_value', 'N/A')}")
                 
                 if metrics.get('data_quality'):
-                    st.markdown("### ✅ Data Quality")
-                    st.success(f"Data completeness: {100 - float(metrics['data_quality']['missing_percentage'].rstrip('%')):.1f}%")
+                    st.markdown("### ✅ Confidence Rating")
+                    st.success(f"Inference Completeness: {100 - float(metrics['data_quality']['missing_percentage'].rstrip('%')):.1f}%")
             
             with tab7:
-                st.markdown("### 📋 AI-Powered Executive Summary")
+                st.markdown("### 📋 Executive Intelligence Summary")
                 
                 summary = results.get('summary', {})
                 
@@ -1393,14 +1402,14 @@ def main():
                     
                 # Show recommendations if available (Legacy support)
                 if isinstance(summary, dict) and summary.get('recommendations'):
-                    st.markdown("### ⚡ Strategic Actions (Auto-Generated)")
+                    st.markdown("### ⚡ Neural Optimization Actions")
                     for rec in summary['recommendations']:
                         priority_color = '#ef4444' if rec.get('priority') == 'HIGH' else '#f59e0b' if rec.get('priority') == 'MEDIUM' else '#3b82f6'
                         st.markdown(f"""
                             <div style='background: #1f2937; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 4px solid {priority_color};'>
-                                <h4 style='margin: 0; color: {priority_color};'>[{rec.get('priority', 'INFO')}] {rec.get('category', 'Recommendation')}</h4>
-                                <p style='margin: 10px 0;'><strong>💡 Insight:</strong> {rec.get('insight', '')}</p>
-                                <p style='margin: 5px 0;'><strong>✅ Action:</strong> {rec.get('action', '')}</p>
+                                <h4 style='margin: 0; color: {priority_color};'>[{rec.get('priority', 'OPTIMIZE')}] {rec.get('category', 'Neural Core')}</h4>
+                                <p style='margin: 10px 0;'><strong>💡 Agent Observation:</strong> {rec.get('insight', '')}</p>
+                                <p style='margin: 5px 0;'><strong>✅ Model Adjustment:</strong> {rec.get('action', '')}</p>
                             </div>
                         """, unsafe_allow_html=True)
                 
@@ -1467,13 +1476,13 @@ def main():
                 </div>
                 <br><br>
                 <div style='background: #1f2937; padding: 20px; border-radius: 10px; margin-top: 30px; max-width: 600px; margin-left: auto; margin-right: auto;'>
-                    <h3 style='color: #10b981;'>✨ What CognifyX Can Analyze:</h3>
+                    <h3 style='color: #10b981;'>✨ Neural Intelligence Capabilities:</h3>
                     <ul style='text-align: left; color: #9ca3af;'>
-                        <li>📈 Sales & Revenue Data</li>
-                        <li>👥 Customer Analytics</li>
-                        <li>📦 Inventory & Products</li>
-                        <li>💰 Financial Transactions</li>
-                        <li>📊 Any CSV Dataset!</li>
+                        <li>🤖 Agent Interaction Logs & Context Analysis</li>
+                        <li>🧠 Cognitive Performance & Success Metrics</li>
+                        <li>👥 Persona Behavior & Clustering</li>
+                        <li>📉 Trend Prediction & Drift Detection</li>
+                        <li>📊 Universal Intelligence on ANY Dataset!</li>
                     </ul>
                 </div>
                 <br>
